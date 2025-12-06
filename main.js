@@ -6,6 +6,13 @@ const html = htm.bind(React.createElement);
 
 const canvas = document.getElementById('sim');
 const ctx = canvas.getContext('2d');
+const Howl = window.Howl;
+const sounds = {
+  fire: new Howl({ src: ['https://cdn.pixabay.com/download/audio/2022/03/15/audio_5b15144f33.mp3?filename=fire-crackling-1-6742.mp3'], loop: true, volume: 0.35 }),
+  alarm: new Howl({ src: ['https://cdn.pixabay.com/download/audio/2022/03/15/audio_206a695f39.mp3?filename=alarm-6107.mp3'], loop: true, volume: 0.25 }),
+  bomb: new Howl({ src: ['https://cdn.pixabay.com/download/audio/2022/03/15/audio_7c3dcbfdf3.mp3?filename=explosion-6055.mp3'], volume: 0.7 }),
+  quake: new Howl({ src: ['https://cdn.pixabay.com/download/audio/2022/03/15/audio_0dc992d7b1.mp3?filename=rumble-6054.mp3'], volume: 0.4 }),
+};
 
 const initialHud = {
   alive: 0,
@@ -87,6 +94,7 @@ const Colors = {
   RUBBLE: '#3c3732',
   EXIT: '#32ff74',
   FIRE: '#ff7800',
+  SMOKE: '#9aa3ad',
   SKINS: ['#ffdcb1', '#b48a78', '#8d5524'],
   SHIRTS: ['#7070d6', '#d67a7a', '#68b96b', '#d4c66b'],
 };
@@ -317,6 +325,11 @@ class Person {
     this.thought = 'Working...';
     this.thoughtTimer = randInt(1, 4);
     this.state = 'WORK';
+    this.role = pick(['hesitant', 'regular', 'leader', 'aid']);
+    this.noticeDelay = 1 + Math.random() * 6;
+    if (this.role === 'hesitant') this.noticeDelay += 3;
+    if (this.role === 'leader') this.noticeDelay *= 0.5;
+    this.aware = false;
   }
 
   setThought(text) {
@@ -360,6 +373,20 @@ class Person {
         this.thoughtTimer = randInt(3, 6);
       }
       return;
+    }
+
+    if (!this.aware) {
+      this.noticeDelay -= dt;
+      if (this.noticeDelay <= 0) {
+        this.aware = true;
+        this.setThought('What happened?');
+        if (this.role === 'hesitant' && Math.random() < 0.4) {
+          this.stunTimer = 2;
+          this.setThought('Frozen...');
+        }
+      } else {
+        return;
+      }
     }
 
     const heatHere = getHeat(this.r, this.c);
@@ -417,6 +444,8 @@ class Person {
       let speed = 4;
       speed *= Math.max(0.35, 1 - heatHere * 0.01);
       if (smokeHere > 12) speed *= 0.6;
+      if (this.role === 'hesitant') speed *= 0.8;
+      if (this.role === 'leader') speed *= 1.2;
       if (this.injured) speed = 1.5;
       if (maze[this.r][this.c] === RUBBLE) {
         speed *= 0.3;
@@ -744,6 +773,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 function beginEvac() {
   if (evacStarted) return;
   evacStarted = true;
+  sounds.alarm.play();
   for (const p of people) {
     p.path = [];
     p.state = 'IDLE';
@@ -757,6 +787,7 @@ function toggleRoutes() { overlayState.showRoutes = !overlayState.showRoutes; }
 
 function triggerBomb() {
   beginEvac();
+  sounds.bomb.play();
   camera.shake = 15;
   for (let i = 0; i < 4; i++) {
     let ir = randInt(2, ROWS - 2);
@@ -783,6 +814,7 @@ function triggerBomb() {
 
 function triggerQuake() {
   beginEvac();
+  sounds.quake.play();
   camera.shake = 25;
   for (let i = 0; i < 60; i++) {
     const rx = randInt(2, ROWS - 2);
@@ -793,6 +825,7 @@ function triggerQuake() {
 
 function triggerFire() {
   beginEvac();
+  sounds.fire.play();
   for (let i = 0; i < 10; i++) {
     const fx = randInt(2, ROWS - 2);
     const fy = randInt(2, COLS - 2);
@@ -923,6 +956,8 @@ function updateHazards(dt) {
   }
 
   if (hazards.size && !evacStarted) beginEvac();
+  if (hazards.size && !sounds.fire.playing()) sounds.fire.play();
+  if (!hazards.size) sounds.fire.stop();
 }
 
 function predictSpread(intensity, heat, smoke, occupancy, windMag) {
