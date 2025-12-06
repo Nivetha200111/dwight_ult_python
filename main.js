@@ -41,7 +41,7 @@ function App({ onReset, onBomb, onQuake, onFire, onScenario, scenariosList }) {
             <span class="chip">Evac: ${hud.evacTime}</span>
           </div>
           <div class="controls">
-            WASD pan · Scroll zoom · Click follow · Space free camera · B bomb · E quake · F fire · R reset · H heatmap · V sensors · G guidance · Shift+click drop sensor
+            WASD pan · Scroll zoom · Click follow · Space free camera · B bomb · E quake · F fire · R reset · H heatmap · V sensors · G guidance · Shift+click drop sensor · Right-click target disaster (1=fire, 2=bomb, 3=quake)
           </div>
           <div class="controls">
             Scenario:
@@ -159,6 +159,7 @@ let mockSocket = null;
 const windState = { dx: 0, dy: 0, mag: 0 };
 let sensorIdCounter = 0;
 let feedAttached = false;
+let placementMode = 'fire'; // fire | bomb | quake
 
 function getHeat(r, c) {
   return heatGrid?.[r]?.[c] || 0;
@@ -689,6 +690,10 @@ function handleKeyDown(e) {
   if (k === 'h') toggleHeatmap();
   if (k === 'v') toggleSensors();
   if (k === 'g') toggleRoutes();
+  if (k === '1') placementMode = 'fire';
+  if (k === '2') placementMode = 'bomb';
+  if (k === '3') placementMode = 'quake';
+  if (k === 't') triggerRandomDisaster();
 }
 
 function handleKeyUp(e) {
@@ -711,6 +716,11 @@ canvas.addEventListener('mousedown', (e) => {
     if (gridR >= 1 && gridR < ROWS - 1 && gridC >= 1 && gridC < COLS - 1) {
       sensorNodes.push({ id: sensorIdCounter++, r: gridR, c: gridC, radius: randInt(3, 6), triggered: false, reading: 0 });
     }
+  } else if (e.button === 2 || e.ctrlKey) {
+    // targeted disaster placement
+    const gridR = Math.floor((my + camera.y) / camera.tileH);
+    const gridC = Math.floor((mx + camera.x) / camera.tileW);
+    spawnDisasterAt(gridR, gridC, placementMode);
   } else {
     for (const p of people) {
       const pos = camera.toScreen(p.exactR, p.exactC);
@@ -728,6 +738,8 @@ canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   camera.applyZoom(-e.deltaY * 0.0015);
 });
+
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function beginEvac() {
   if (evacStarted) return;
@@ -786,6 +798,46 @@ function triggerFire() {
     const fy = randInt(2, COLS - 2);
     if (maze[fx][fy] !== WALL) hazards.set(key([fx, fy]), { intensity: 35 });
   }
+}
+
+function triggerRandomDisaster() {
+  const roll = Math.random();
+  if (roll < 0.33) triggerBomb();
+  else if (roll < 0.66) triggerQuake();
+  else triggerFire();
+}
+
+function spawnDisasterAt(r, c, type) {
+  if (r < 1 || c < 1 || r >= ROWS - 1 || c >= COLS - 1) return;
+  if (type === 'fire') {
+    hazards.set(key([r, c]), { intensity: 42 });
+  } else if (type === 'bomb') {
+    camera.shake = 12;
+    for (let i = 0; i < 3; i++) {
+      const ir = clamp(r + randInt(-1, 1), 1, ROWS - 2);
+      const ic = clamp(c + randInt(-1, 1), 1, COLS - 2);
+      maze[ir][ic] = RUBBLE;
+      for (const p of people) {
+        if (Math.abs(p.r - ir) + Math.abs(p.c - ic) < 5) {
+          p.stunTimer = 2.5;
+          p.setThought('EARS RINGING!');
+        }
+      }
+      if (Math.random() < 0.8) hazards.set(key([ir, ic]), { intensity: 30 });
+    }
+  } else if (type === 'quake') {
+    camera.shake = 18;
+    for (let dr = -3; dr <= 3; dr++) {
+      for (let dc = -3; dc <= 3; dc++) {
+        const nr = r + dr;
+        const nc = c + dc;
+        if (nr > 0 && nc > 0 && nr < ROWS - 1 && nc < COLS - 1 && maze[nr][nc] === FLOOR) {
+          maze[nr][nc] = RUBBLE;
+        }
+      }
+    }
+  }
+  beginEvac();
 }
 
 function update(dt) {

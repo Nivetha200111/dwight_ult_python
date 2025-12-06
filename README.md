@@ -29,3 +29,4 @@ vercel --prod
 - React overlay HUD (CDN React 18 + htm) with quick action buttons, toggles for heatmap/sensors/guidance, scenario selector, metrics (evac time, congestion).
 - IoT-style sensor nodes (auto-placed or shift-click to place) with live trigger state and coverage rings; mock WebSocket feed simulates sensor updates.
 - Optional TF.js spread predictor (CDN) adjusts fire propagation based on heat/smoke/occupancy/wind for a “smart safety” angle.
+- Targeted disasters: right-click (or ctrl+click) to place fire/bomb/quake at the cursor; choose mode with keys 1 (fire), 2 (bomb), 3 (quake). Random disaster with T. 
