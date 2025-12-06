@@ -11,6 +11,7 @@ const initialHud = {
   alive: 0,
   escaped: 0,
   hazards: 0,
+  sensors: '0/0',
   status: 'Working',
   target: 'Camera free · click a person to follow',
 };
@@ -29,6 +30,7 @@ function App({ onReset, onBomb, onQuake, onFire }) {
             <span class="chip">Alive: ${hud.alive}</span>
             <span class="chip">Escaped: ${hud.escaped}</span>
             <span class="chip">Hazards: ${hud.hazards}</span>
+            <span class="chip">Sensors: ${hud.sensors}</span>
             <span class="chip">Status: ${hud.status}</span>
           </div>
           <div class="controls">
@@ -36,6 +38,9 @@ function App({ onReset, onBomb, onQuake, onFire }) {
           </div>
         </div>
         <div class="hud__actions">
+          <button class="btn btn-secondary" onClick=${toggleHeatmap}>Heatmap (H)</button>
+          <button class="btn btn-secondary" onClick=${toggleSensors}>Sensors (V)</button>
+          <button class="btn btn-secondary" onClick=${toggleRoutes}>Guidance (G)</button>
           <button class="btn btn-secondary" onClick=${onBomb}>Bomb</button>
           <button class="btn btn-secondary" onClick=${onQuake}>Quake</button>
           <button class="btn btn-secondary" onClick=${onFire}>Fire</button>
@@ -76,6 +81,8 @@ const EXIT = 2;
 const RUBBLE = 3;
 const workingThoughts = ['Working...', 'Crunching numbers', 'Pulling reports', 'Fixing bugs', 'On a call'];
 let evacStarted = false;
+const sensorNodes = [];
+let overlayState = { showHeatmap: false, showSensors: true, showRoutes: true };
 
 class Camera {
   constructor() {
@@ -119,7 +126,8 @@ class Camera {
     }
 
     if (this.target) {
-      const { x: tx, y: ty } = this.getIsoCoords(this.target.exactR, this.target.exactC);
+      const tx = this.target.exactC * this.tileW;
+      const ty = this.target.exactR * this.tileH;
       const desiredX = tx - screenWidth / 2;
       const desiredY = ty - screenHeight / 2;
       this.x += (desiredX - this.x) * 0.1;
@@ -127,14 +135,9 @@ class Camera {
     }
   }
 
-  getIsoCoords(r, c) {
-    const isoX = (c - r) * (this.tileW / 2);
-    const isoY = (c + r) * (this.tileH / 2);
-    return { x: isoX, y: isoY };
-  }
-
   toScreen(r, c, z = 0) {
-    const { x, y } = this.getIsoCoords(r, c);
+    const x = c * this.tileW;
+    const y = r * this.tileH;
     return { x: x - this.x, y: y - this.y - z * this.zoom };
   }
 }
@@ -409,6 +412,19 @@ function createMaze() {
   return m;
 }
 
+function spawnSensors() {
+  sensorNodes.length = 0;
+  const count = 8;
+  for (let i = 0; i < count; i++) {
+    sensorNodes.push({
+      r: randInt(3, ROWS - 4),
+      c: randInt(3, COLS - 4),
+      radius: randInt(3, 6),
+      triggered: false,
+    });
+  }
+}
+
 function spawnPeople(m) {
   const list = [];
   for (let i = 0; i < TOTAL_PEOPLE; i++) {
@@ -428,6 +444,7 @@ function resetWorld() {
   hazards.clear();
   maze = createMaze();
   people = spawnPeople(maze);
+  spawnSensors();
   camera.centerOnMap();
   camera.target = null;
   updateHUD();
@@ -447,6 +464,9 @@ function handleKeyDown(e) {
   if (k === 'b') triggerBomb();
   if (k === 'e') triggerQuake();
   if (k === 'f') triggerFire();
+  if (k === 'h') toggleHeatmap();
+  if (k === 'v') toggleSensors();
+  if (k === 'g') toggleRoutes();
 }
 
 function handleKeyUp(e) {
@@ -462,15 +482,24 @@ canvas.addEventListener('mousedown', (e) => {
   const my = ((e.clientY - rect.top) / rect.height) * canvas.height;
   let bestDist = 40 * camera.zoom;
   let selected = null;
-  for (const p of people) {
-    const pos = camera.toScreen(p.exactR, p.exactC);
-    const d = Math.hypot(pos.x - mx, pos.y - my);
-    if (d < bestDist) {
-      bestDist = d;
-      selected = p;
+  if (e.shiftKey) {
+    // place sensor
+    const gridR = Math.floor((my + camera.y) / camera.tileH);
+    const gridC = Math.floor((mx + camera.x) / camera.tileW);
+    if (gridR >= 1 && gridR < ROWS - 1 && gridC >= 1 && gridC < COLS - 1) {
+      sensorNodes.push({ r: gridR, c: gridC, radius: randInt(3, 6), triggered: false });
     }
+  } else {
+    for (const p of people) {
+      const pos = camera.toScreen(p.exactR, p.exactC);
+      const d = Math.hypot(pos.x + camera.tileW / 2 - mx, pos.y + camera.tileH / 2 - my);
+      if (d < bestDist) {
+        bestDist = d;
+        selected = p;
+      }
+    }
+    if (selected) camera.target = selected;
   }
-  if (selected) camera.target = selected;
 });
 
 canvas.addEventListener('wheel', (e) => {
@@ -487,6 +516,10 @@ function beginEvac() {
     p.setThought('Move! Move!');
   }
 }
+
+function toggleHeatmap() { overlayState.showHeatmap = !overlayState.showHeatmap; }
+function toggleSensors() { overlayState.showSensors = !overlayState.showSensors; }
+function toggleRoutes() { overlayState.showRoutes = !overlayState.showRoutes; }
 
 function triggerBomb() {
   beginEvac();
@@ -537,6 +570,7 @@ function update(dt) {
   handleCameraMovement(dt);
   camera.update();
   updateHazards(dt);
+  updateSensors();
 
   for (const p of people) {
     p.update(dt, maze, hazards);
@@ -575,23 +609,41 @@ function updateHazards(dt) {
   if (hazards.size && !evacStarted) beginEvac();
 }
 
+function updateSensors() {
+  for (const s of sensorNodes) {
+    s.triggered = false;
+    for (const [hk] of hazards) {
+      const [hr, hc] = parseKey(hk);
+      const d = Math.hypot(hr - s.r, hc - s.c);
+      if (d <= s.radius) {
+        s.triggered = true;
+        break;
+      }
+    }
+  }
+}
+
 function draw() {
   ctx.clearRect(0, 0, screenWidth, screenHeight);
-  ctx.fillStyle = '#151822';
+  ctx.fillStyle = '#0c0f15';
   ctx.fillRect(0, 0, screenWidth, screenHeight);
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      drawIsoTile(r, c, maze[r][c]);
+      drawTile(r, c, maze[r][c]);
     }
   }
+
+  if (overlayState.showHeatmap) drawHeatmap();
+
+  drawSensors();
 
   for (const [k] of hazards) {
     const [r, c] = parseKey(k);
     const pos = camera.toScreen(r, c);
     ctx.beginPath();
     ctx.fillStyle = Colors.FIRE;
-    ctx.arc(pos.x, pos.y - 10 * camera.zoom, 6 * camera.zoom, 0, Math.PI * 2);
+    ctx.arc(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2, 6 * camera.zoom, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -601,61 +653,30 @@ function draw() {
     drawPerson(p, timeVal);
   }
 
+  if (overlayState.showRoutes) drawGuidancePath();
+
   drawLightingMask();
   updateHUD();
 }
 
-function drawIsoTile(r, c, tile) {
+function drawTile(r, c, tile) {
   const pos = camera.toScreen(r, c);
-  if (pos.x < -100 || pos.x > screenWidth + 100 || pos.y < -100 || pos.y > screenHeight + 100) return;
+  if (pos.x < -camera.tileW || pos.x > screenWidth + camera.tileW || pos.y < -camera.tileH || pos.y > screenHeight + camera.tileH) return;
 
   const w = camera.tileW;
   const hTile = camera.tileH;
   let col = Colors.FLOOR;
-  let z = 0;
 
-  if (tile === WALL) {
-    col = Colors.WALL_TOP;
-    z = 24 * camera.zoom;
-  } else if (tile === RUBBLE) {
-    col = Colors.RUBBLE;
-    z = 6 * camera.zoom;
-  } else if (tile === EXIT) {
-    col = Colors.EXIT;
-  }
-
-  const top = [pos.x, pos.y - z];
-  const right = [pos.x + w / 2, pos.y + hTile / 2 - z];
-  const bottom = [pos.x, pos.y + hTile - z];
-  const left = [pos.x - w / 2, pos.y + hTile / 2 - z];
+  if (tile === WALL) col = Colors.WALL_TOP;
+  else if (tile === RUBBLE) col = Colors.RUBBLE;
+  else if (tile === EXIT) col = Colors.EXIT;
 
   ctx.fillStyle = col;
-  ctx.beginPath();
-  ctx.moveTo(...top);
-  ctx.lineTo(...right);
-  ctx.lineTo(...bottom);
-  ctx.lineTo(...left);
-  ctx.closePath();
-  ctx.fill();
+  ctx.fillRect(pos.x, pos.y, w, hTile);
 
-  if (z > 0) {
-    ctx.fillStyle = shade(col, 0.6);
-    ctx.beginPath();
-    ctx.moveTo(...right);
-    ctx.lineTo(...bottom);
-    ctx.lineTo(bottom[0], bottom[1] + z);
-    ctx.lineTo(right[0], right[1] + z);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = shade(col, 0.8);
-    ctx.beginPath();
-    ctx.moveTo(...left);
-    ctx.lineTo(...bottom);
-    ctx.lineTo(bottom[0], bottom[1] + z);
-    ctx.lineTo(left[0], left[1] + z);
-    ctx.closePath();
-    ctx.fill();
+  if (tile === WALL) {
+    ctx.fillStyle = Colors.WALL_SIDE;
+    ctx.fillRect(pos.x, pos.y + hTile - 4 * camera.zoom, w, 4 * camera.zoom);
   }
 }
 
@@ -674,46 +695,107 @@ function drawPerson(p, timeVal) {
   if (p.state === 'MOVING') bob = Math.sin(timeVal * 10 + p.animOffset) * 2 * zoom;
   else if (p.state === 'WORK') bob = Math.sin(timeVal * 2 + p.animOffset) * 1.2 * zoom;
 
-  const h = 16 * zoom;
-  const w = 8 * zoom;
-
-  ctx.strokeStyle = '#2a2a2a';
-  ctx.lineWidth = 2 * zoom;
-  ctx.beginPath();
-  ctx.moveTo(pos.x - 2 * zoom, pos.y);
-  ctx.lineTo(pos.x - 2 * zoom, pos.y - h / 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(pos.x + 2 * zoom, pos.y);
-  ctx.lineTo(pos.x + 2 * zoom, pos.y - h / 2);
-  ctx.stroke();
-
+  const radius = 7 * zoom;
   ctx.fillStyle = p.colorShirt;
-  ctx.fillRect(pos.x - w / 2, pos.y - h + bob, w, h / 1.5);
+  ctx.beginPath();
+  ctx.arc(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2 + bob, radius + 2 * zoom, 0, Math.PI * 2);
+  ctx.fill();
 
-  const headY = pos.y - h + bob - 4 * zoom;
   ctx.fillStyle = p.colorSkin;
   ctx.beginPath();
-  ctx.arc(pos.x, headY, 4 * zoom, 0, Math.PI * 2);
+  ctx.arc(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2 - 5 * zoom + bob, radius, 0, Math.PI * 2);
   ctx.fill();
 
   if (p.stunTimer > 0) {
     ctx.fillStyle = '#ffd600';
     ctx.beginPath();
-    ctx.arc(pos.x, headY - 8 * zoom, 2 * zoom, 0, Math.PI * 2);
+    ctx.arc(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2 - 12 * zoom, 3 * zoom, 0, Math.PI * 2);
     ctx.fill();
   }
 
   if (camera.target === p) {
-    const arrowY = headY - 15 * zoom + Math.sin(timeVal * 5) * 5;
+    const arrowY = pos.y + camera.tileH / 2 - 18 * zoom + Math.sin(timeVal * 5) * 5;
+    const cx = pos.x + camera.tileW / 2;
     ctx.fillStyle = '#ffd600';
     ctx.beginPath();
-    ctx.moveTo(pos.x, arrowY + 10 * zoom);
-    ctx.lineTo(pos.x - 5 * zoom, arrowY);
-    ctx.lineTo(pos.x + 5 * zoom, arrowY);
+    ctx.moveTo(cx, arrowY + 10 * zoom);
+    ctx.lineTo(cx - 6 * zoom, arrowY);
+    ctx.lineTo(cx + 6 * zoom, arrowY);
     ctx.closePath();
     ctx.fill();
   }
+}
+
+function drawHeatmap() {
+  const maxRisk = 60;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const pos = camera.toScreen(r, c);
+      if (pos.x < -camera.tileW || pos.x > screenWidth + camera.tileW || pos.y < -camera.tileH || pos.y > screenHeight + camera.tileH) continue;
+      const cellKey = key([r, c]);
+      let risk = 0;
+      if (hazards.has(cellKey)) risk += hazards.get(cellKey) * 2;
+      for (const [hk] of hazards) {
+        const [hr, hc] = parseKey(hk);
+        const d = Math.abs(hr - r) + Math.abs(hc - c);
+        risk += Math.max(0, 20 - d);
+      }
+      if (risk <= 0) continue;
+      const alpha = Math.min(0.35, risk / maxRisk);
+      ctx.fillStyle = `rgba(255, 99, 71, ${alpha})`;
+      ctx.fillRect(pos.x, pos.y, camera.tileW, camera.tileH);
+    }
+  }
+}
+
+function drawSensors() {
+  if (!overlayState.showSensors) return;
+  for (const s of sensorNodes) {
+    const pos = camera.toScreen(s.r, s.c);
+    const cx = pos.x + camera.tileW / 2;
+    const cy = pos.y + camera.tileH / 2;
+    ctx.strokeStyle = s.triggered ? '#ff6b6b' : '#7cd6f1';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, s.radius * camera.tileW, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = s.triggered ? '#ff6b6b' : '#7cd6f1';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawGuidancePath() {
+  const candidate = people.find((p) => p.alive && !p.escaped);
+  if (!candidate) return;
+  let bestExit = null;
+  let minD = Infinity;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (maze[r][c] === EXIT) {
+        const d = Math.abs(candidate.r - r) + Math.abs(candidate.c - c);
+        if (d < minD) {
+          minD = d;
+          bestExit = [r, c];
+        }
+      }
+    }
+  }
+  if (!bestExit) return;
+  const path = pathfinder.findPath([candidate.r, candidate.c], bestExit, maze, new Set(hazards.keys()));
+  if (!path.length) return;
+  ctx.strokeStyle = 'rgba(124, 214, 241, 0.9)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  const first = camera.toScreen(candidate.r, candidate.c);
+  ctx.moveTo(first.x + camera.tileW / 2, first.y + camera.tileH / 2);
+  for (const [r, c] of path) {
+    const pos = camera.toScreen(r, c);
+    ctx.lineTo(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2);
+  }
+  ctx.stroke();
 }
 
 function drawLightingMask() {
@@ -725,12 +807,19 @@ function drawLightingMask() {
   ctx.fillStyle = 'rgba(30,30,30,0.8)';
   ctx.fillRect(0, 0, screenWidth, screenHeight);
   ctx.globalCompositeOperation = 'destination-out';
-  const g = ctx.createRadialGradient(pos.x, pos.y - 20, radius * 0.25, pos.x, pos.y - 20, radius);
+  const g = ctx.createRadialGradient(
+    pos.x + camera.tileW / 2,
+    pos.y + camera.tileH / 2,
+    radius * 0.25,
+    pos.x + camera.tileW / 2,
+    pos.y + camera.tileH / 2,
+    radius
+  );
   g.addColorStop(0, 'rgba(0,0,0,0.9)');
   g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(pos.x, pos.y - 20, radius, 0, Math.PI * 2);
+  ctx.arc(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
@@ -741,7 +830,7 @@ function drawThoughtBubble(p, pos) {
   const bubbleW = 190;
   const bubbleH = 56;
   const x = clamp(pos.x + 30, 12, screenWidth - bubbleW - 12);
-  const y = clamp(pos.y - 90, 12, screenHeight - bubbleH - 12);
+  const y = clamp(pos.y - 60, 12, screenHeight - bubbleH - 12);
 
   ctx.save();
   ctx.fillStyle = 'rgba(255,255,255,0.98)';
@@ -790,6 +879,7 @@ function roundRect(context, x, y, w, h, r) {
 function updateHUD() {
   const alive = people.filter((p) => p.alive).length;
   const escaped = people.filter((p) => p.escaped).length;
+  const activeSensors = sensorNodes.filter((s) => s.triggered).length;
   const targetText = camera.target
     ? `Tracking ID ${camera.target.id} · ${camera.target.thought}`
     : 'Camera free · click a person to follow';
@@ -799,6 +889,7 @@ function updateHUD() {
       alive,
       escaped,
       hazards: hazards.size,
+      sensors: `${activeSensors}/${sensorNodes.length}`,
       status: evacStarted ? 'Evacuating' : 'Working',
       target: targetText,
     });

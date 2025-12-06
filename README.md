@@ -20,8 +20,9 @@ vercel --prod
 
 ## What’s included
 
-- Full-screen canvas rendering of the isometric grid, rubble, exits, and hazard spread.
-- Workers idle in-place until you trigger a disaster (Bomb/Quake/Fire), then they evacuate.
-- Camera panning/zoom, person selection with dynamic lighting mask, and thought bubbles.
+- Full-screen **top-down** canvas rendering of the grid, rubble, exits, and hazard spread (no isometric tilt).
+- Workers idle until you trigger a disaster (Bomb/Quake/Fire); then they evacuate toward exits.
+- Camera pan/zoom, person selection with POV light mask, and thought bubbles.
 - Bomb/quake/fire events, stun + health logic, and pathfinding toward exits.
-- Minimal HUD with stats/controls; React overlay (cdn React 18 + htm) with quick action buttons.
+- React overlay HUD (CDN React 18 + htm) with quick action buttons, toggles for heatmap/sensors/guidance.
+- IoT-style sensor nodes (auto-placed or shift-click to place) with live trigger state and coverage rings; risk heatmap and guidance path overlay.
