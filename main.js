@@ -578,7 +578,7 @@ class Person {
       sales: ["Where's the exit?!", "Not my commission!", "Run!"],
       reception: ["Phones down—move!", "Jim, this way!", "Pam sprinting!"],
       accounting: ["Save the ledgers!", "Receipts later—run now!", "Do not trip, Kevin!"],
-      default: ["FIRE!", "Help!", "Where do I go?!", "Stay calm stay calm"]
+      default: ["FIRE!", "Help!", "Where do I go?!", "Stay calm stay calm", "Earthquake?!", "Bomb!? Move!"]
     };
     return thoughts[this.role]?.[Math.floor(Math.random() * (thoughts[this.role]?.length || 1))] ||
            thoughts.default[Math.floor(Math.random() * thoughts.default.length)];
@@ -618,8 +618,8 @@ class Person {
 
     // Awareness update
     if (this.state === 'working') {
-      if (alarmActive) {
-        const rate = this.role === 'warden' ? 0.5 : 0.15 * this.traits.awareness;
+      if (alarmActive || hazards.earthquakeActive) {
+        const rate = this.role === 'warden' ? 0.5 : 0.2 * this.traits.awareness;
         this.awareness += rate * dt;
       }
 
@@ -628,6 +628,15 @@ class Person {
         if (dist < 10) {
           this.awareness += (0.3 * this.traits.awareness) / (dist + 1) * dt;
         }
+      }
+      // Bomb/flood proximity raises awareness
+      for (const exp of hazards.bombExplosions) {
+        const dist = Math.hypot(this.r - exp.r, this.c - exp.c);
+        if (dist < 12) this.awareness += 0.3 * dt;
+      }
+      if (hazards.floodActive) {
+        const nearbyFlood = hazards.flood.find(f => Math.abs(f.r - this.r) + Math.abs(f.c - this.c) < 6);
+        if (nearbyFlood) this.awareness += 0.25 * dt;
       }
 
       if (this.awareness >= 0.7) {
@@ -1528,8 +1537,8 @@ let setHudState = null;
 function update(dt) {
   if (paused) return;
 
-  // Auto alarm on fire
-  if (hazards.fires.length > 0 && !alarmActive) {
+  // Auto alarm on hazard
+  if (!alarmActive && (hazards.fires.length > 0 || hazards.bombExplosions.length > 0 || hazards.flood.length > 0 || hazards.earthquakeActive)) {
     alarmActive = true;
   }
 
