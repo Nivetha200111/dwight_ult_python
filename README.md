@@ -24,4 +24,4 @@ vercel --prod
 - Workers idle in-place until you trigger a disaster (Bomb/Quake/Fire), then they evacuate.
 - Camera panning/zoom, person selection with dynamic lighting mask, and thought bubbles.
 - Bomb/quake/fire events, stun + health logic, and pathfinding toward exits.
-- Minimal HUD with stats/controls; no marketing chrome.
+- Minimal HUD with stats/controls; React overlay (cdn React 18 + htm) with quick action buttons.

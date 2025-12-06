@@ -1,12 +1,53 @@
+import React from 'https://esm.sh/react@18.3.1';
+import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
+import htm from 'https://esm.sh/htm@3.1.1';
+
+const html = htm.bind(React.createElement);
+
 const canvas = document.getElementById('sim');
 const ctx = canvas.getContext('2d');
 
-const targetInfoEl = document.getElementById('targetInfo');
-const aliveChip = document.getElementById('aliveChip');
-const escapedChip = document.getElementById('escapedChip');
-const hazardChip = document.getElementById('hazardChip');
-const statusChip = document.getElementById('statusChip');
-const resetBtn = document.getElementById('resetBtn');
+const initialHud = {
+  alive: 0,
+  escaped: 0,
+  hazards: 0,
+  status: 'Working',
+  target: 'Camera free · click a person to follow',
+};
+
+let setHudState = null;
+
+function App({ onReset, onBomb, onQuake, onFire }) {
+  const [hud, setHud] = React.useState(initialHud);
+  setHudState = (next) => setHud((prev) => ({ ...prev, ...next }));
+
+  return html`
+    <div class="overlay">
+      <div class="hud">
+        <div class="hud__stats">
+          <div class="chips">
+            <span class="chip">Alive: ${hud.alive}</span>
+            <span class="chip">Escaped: ${hud.escaped}</span>
+            <span class="chip">Hazards: ${hud.hazards}</span>
+            <span class="chip">Status: ${hud.status}</span>
+          </div>
+          <div class="controls">
+            WASD pan · Scroll zoom · Click follow · Space free camera · B bomb · E quake · F fire · R reset
+          </div>
+        </div>
+        <div class="hud__actions">
+          <button class="btn btn-secondary" onClick=${onBomb}>Bomb</button>
+          <button class="btn btn-secondary" onClick=${onQuake}>Quake</button>
+          <button class="btn btn-secondary" onClick=${onFire}>Fire</button>
+          <button class="btn btn-primary" onClick=${onReset}>Reset</button>
+        </div>
+      </div>
+      <div class="target-info">${hud.target}</div>
+    </div>
+  `;
+}
+
+const root = createRoot(document.getElementById('app'));
 
 const ROWS = 40;
 const COLS = 50;
@@ -392,8 +433,6 @@ function resetWorld() {
   updateHUD();
 }
 
-resetBtn.addEventListener('click', resetWorld);
-
 function handleKeyDown(e) {
   const k = e.key.toLowerCase();
   keysDown.add(k);
@@ -751,15 +790,18 @@ function roundRect(context, x, y, w, h, r) {
 function updateHUD() {
   const alive = people.filter((p) => p.alive).length;
   const escaped = people.filter((p) => p.escaped).length;
-  aliveChip.textContent = `Alive: ${alive}`;
-  escapedChip.textContent = `Escaped: ${escaped}`;
-  hazardChip.textContent = `Hazards: ${hazards.size}`;
-  statusChip.textContent = `Status: ${evacStarted ? 'Evacuating' : 'Working'}`;
+  const targetText = camera.target
+    ? `Tracking ID ${camera.target.id} · ${camera.target.thought}`
+    : 'Camera free · click a person to follow';
 
-  if (camera.target) {
-    targetInfoEl.textContent = `Tracking ID ${camera.target.id} · ${camera.target.thought}`;
-  } else {
-    targetInfoEl.textContent = 'Camera free · click a person to follow';
+  if (setHudState) {
+    setHudState({
+      alive,
+      escaped,
+      hazards: hazards.size,
+      status: evacStarted ? 'Evacuating' : 'Working',
+      target: targetText,
+    });
   }
 }
 
@@ -770,6 +812,8 @@ function loop(ts) {
   draw();
   requestAnimationFrame(loop);
 }
+
+root.render(html`<${App} onReset=${resetWorld} onBomb=${triggerBomb} onQuake=${triggerQuake} onFire=${triggerFire} />`);
 
 resetWorld();
 requestAnimationFrame(loop);

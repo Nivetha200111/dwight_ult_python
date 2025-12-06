@@ -10,24 +10,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="hud">
-    <div class="hud__stats">
-      <div class="chips">
-        <span class="chip" id="aliveChip">Alive: 0</span>
-        <span class="chip" id="escapedChip">Escaped: 0</span>
-        <span class="chip" id="hazardChip">Hazards: 0</span>
-        <span class="chip" id="statusChip">Status: Working</span>
-      </div>
-      <div class="controls">
-        WASD pan · Scroll zoom · Click follow · Space free camera · B bomb · E quake · F fire · R reset
-      </div>
-    </div>
-    <button id="resetBtn" class="btn btn-primary">Reset</button>
-  </div>
-
   <canvas id="sim"></canvas>
-  <div id="targetInfo" class="target-info">Camera free · click a person to follow</div>
-
-  <script src="main.js"></script>
+  <div id="app"></div>
+  <script type="module" src="main.js"></script>
 </body>
 </html>
