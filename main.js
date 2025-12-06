@@ -14,12 +14,16 @@ const initialHud = {
   sensors: '0/0',
   status: 'Working',
   target: 'Camera free · click a person to follow',
+  scenario: 'Electrical Fire (Server Row)',
+  evacTime: '--',
+  congestion: '0/0',
 };
 
 let setHudState = null;
 
-function App({ onReset, onBomb, onQuake, onFire }) {
+function App({ onReset, onBomb, onQuake, onFire, onScenario, scenariosList }) {
   const [hud, setHud] = React.useState(initialHud);
+  const [selectedScenario, setSelectedScenario] = React.useState(currentScenario.id);
   setHudState = (next) => setHud((prev) => ({ ...prev, ...next }));
 
   return html`
@@ -31,10 +35,22 @@ function App({ onReset, onBomb, onQuake, onFire }) {
             <span class="chip">Escaped: ${hud.escaped}</span>
             <span class="chip">Hazards: ${hud.hazards}</span>
             <span class="chip">Sensors: ${hud.sensors}</span>
+            <span class="chip">Scenario: ${hud.scenario}</span>
             <span class="chip">Status: ${hud.status}</span>
+            <span class="chip">Congestion: ${hud.congestion}</span>
+            <span class="chip">Evac: ${hud.evacTime}</span>
           </div>
           <div class="controls">
-            WASD pan · Scroll zoom · Click follow · Space free camera · B bomb · E quake · F fire · R reset
+            WASD pan · Scroll zoom · Click follow · Space free camera · B bomb · E quake · F fire · R reset · H heatmap · V sensors · G guidance · Shift+click drop sensor
+          </div>
+          <div class="controls">
+            Scenario:
+            <select value=${selectedScenario} onChange=${(e) => { setSelectedScenario(e.target.value); onScenario(e.target.value); }}>
+              ${scenariosList.map((s) => html`<option value=${s.id}>${s.name}</option>`)}
+            </select>
+            <span style=${{ color: 'var(--muted)', marginLeft: '6px' }}>
+              ${scenariosList.find((s) => s.id === selectedScenario)?.desc || ''}
+            </span>
           </div>
         </div>
         <div class="hud__actions">
@@ -83,6 +99,82 @@ const workingThoughts = ['Working...', 'Crunching numbers', 'Pulling reports', '
 let evacStarted = false;
 const sensorNodes = [];
 let overlayState = { showHeatmap: false, showSensors: true, showRoutes: true };
+let heatGrid = [];
+let smokeGrid = [];
+const FIRE_DECAY = 6; // intensity decay per second
+const FIRE_SPREAD = 0.14; // base spread chance multiplier
+const SMOKE_DECAY = 0.95;
+const scenarios = [
+  {
+    id: 'electrical',
+    name: 'Electrical Fire (Server Row)',
+    desc: 'High heat, directional wind along aisles, sprinklers late.',
+    seeds: [
+      { r: Math.floor(ROWS * 0.52), c: Math.floor(COLS * 0.32), intensity: 42 },
+      { r: Math.floor(ROWS * 0.48), c: Math.floor(COLS * 0.36), intensity: 36 },
+    ],
+    suppression: [
+      { t: 18, radius: 6, power: 0.55 },
+      { t: 30, radius: 8, power: 0.75 },
+    ],
+    wind: { dx: 0.4, dy: 0 },
+    smokeBoost: 1.2,
+  },
+  {
+    id: 'chemical',
+    name: 'Chemical Spill (Lab)',
+    desc: 'Dense smoke, slower heat, early foam deployment.',
+    seeds: [
+      { r: Math.floor(ROWS * 0.68), c: Math.floor(COLS * 0.28), intensity: 32 },
+      { r: Math.floor(ROWS * 0.70), c: Math.floor(COLS * 0.24), intensity: 30 },
+    ],
+    suppression: [
+      { t: 12, radius: 7, power: 0.6 },
+      { t: 24, radius: 10, power: 0.8 },
+    ],
+    wind: { dx: -0.25, dy: 0.1 },
+    smokeBoost: 1.8,
+  },
+  {
+    id: 'kitchen',
+    name: 'Kitchen Grease Fire',
+    desc: 'Fast ignition, hot but localized, quick suppression.',
+    seeds: [{ r: Math.floor(ROWS * 0.24), c: Math.floor(COLS * 0.62), intensity: 44 }],
+    suppression: [{ t: 10, radius: 5, power: 0.7 }],
+    wind: { dx: 0.05, dy: 0.05 },
+    smokeBoost: 1.1,
+  },
+];
+let currentScenario = scenarios[0];
+let scenarioTimers = [];
+let occupancyGrid = [];
+let metrics = {
+  startedAt: performance.now(),
+  evacStartedAt: null,
+  evacEndedAt: null,
+  congestionNow: 0,
+  congestionMax: 0,
+};
+let mockSocket = null;
+const windState = { dx: 0, dy: 0, mag: 0 };
+let sensorIdCounter = 0;
+let feedAttached = false;
+
+function getHeat(r, c) {
+  return heatGrid?.[r]?.[c] || 0;
+}
+
+function getSmoke(r, c) {
+  return smokeGrid?.[r]?.[c] || 0;
+}
+
+function hotspotKeys(hazardMap, threshold = 5) {
+  const s = new Set();
+  for (const [k, v] of hazardMap) {
+    if (v.intensity >= threshold) s.add(k);
+  }
+  return s;
+}
 
 class Camera {
   constructor() {
@@ -249,7 +341,7 @@ class Person {
     }
 
     if (best) {
-      const hazardSet = new Set(hazards.keys());
+      const hazardSet = hotspotKeys(hazards, 5);
       this.path = pathfinder.findPath([this.r, this.c], best, maze, hazardSet);
       this.pathIndex = 0;
     }
@@ -269,10 +361,18 @@ class Person {
       return;
     }
 
-    if (!this.escaped && hazards.has(key([this.r, this.c]))) {
-      this.health -= 40 * dt;
-      this.setThought("I'M BURNING!");
+    const heatHere = getHeat(this.r, this.c);
+    const smokeHere = getSmoke(this.r, this.c);
+
+    if (!this.escaped && heatHere > 0) {
+      this.health -= (8 + heatHere * 0.4) * dt;
+      this.setThought('Too hot!');
       this.state = 'PANIC';
+    }
+
+    if (!this.escaped && smokeHere > 12) {
+      this.health -= (smokeHere - 10) * 0.15 * dt;
+      this.setThought('Smoke!');
     }
 
     if (!this.escaped && this.stunTimer > 0) {
@@ -314,6 +414,8 @@ class Person {
     if (this.path.length && this.pathIndex < this.path.length) {
       const [nr, nc] = this.path[this.pathIndex];
       let speed = 4;
+      speed *= Math.max(0.35, 1 - heatHere * 0.01);
+      if (smokeHere > 12) speed *= 0.6;
       if (this.injured) speed = 1.5;
       if (maze[this.r][this.c] === RUBBLE) {
         speed *= 0.3;
@@ -343,7 +445,7 @@ class Person {
   }
 }
 
-const hazards = new Map();
+const hazards = new Map(); // key -> { intensity }
 let maze = [];
 let people = [];
 let last = performance.now();
@@ -368,6 +470,61 @@ function randInt(min, max) {
 
 function pick(arr) {
   return arr[randInt(0, arr.length - 1)];
+}
+
+function formatTime(ms) {
+  if (!ms || Number.isNaN(ms)) return '--';
+  const s = ms / 1000;
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toFixed(1);
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+
+class FakeSocket extends EventTarget {
+  send() {}
+  close() {}
+}
+
+function startMockSocket() {
+  if (mockSocket) return mockSocket;
+  mockSocket = new FakeSocket();
+  setInterval(() => {
+    if (!sensorNodes.length) return;
+    const s = pick(sensorNodes);
+    const reading = Math.max(0, getHeat(s.r, s.c) * 0.6 + getSmoke(s.r, s.c) * 0.8 + randInt(0, 12));
+    const msg = { sensorId: s.id, reading, r: s.r, c: s.c, ts: Date.now() };
+    mockSocket.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(msg) }));
+  }, 1200);
+  return mockSocket;
+}
+
+function wireMockFeed() {
+  if (feedAttached) return;
+  const sock = startMockSocket();
+  sock.addEventListener('message', handleSensorMessage);
+  feedAttached = true;
+}
+
+function handleSensorMessage(evt) {
+  try {
+    const payload = JSON.parse(evt.data);
+    const s = sensorNodes.find((n) => n.id === payload.sensorId) || sensorNodes.find((n) => Math.abs(n.r - payload.r) + Math.abs(n.c - payload.c) < 3);
+    if (!s) return;
+    s.reading = payload.reading;
+    s.triggered = s.reading > 15;
+  } catch (err) {
+    console.warn('Sensor feed parse failed', err);
+  }
+}
+
+function rebuildOccupancy() {
+  occupancyGrid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => 0));
+  for (const p of people) {
+    if (!p.alive || p.escaped) continue;
+    const r = clamp(Math.round(p.exactR), 0, ROWS - 1);
+    const c = clamp(Math.round(p.exactC), 0, COLS - 1);
+    occupancyGrid[r][c] += 1;
+  }
 }
 
 function resizeCanvas() {
@@ -414,15 +571,65 @@ function createMaze() {
 
 function spawnSensors() {
   sensorNodes.length = 0;
+  sensorIdCounter = 0;
   const count = 8;
   for (let i = 0; i < count; i++) {
     sensorNodes.push({
+      id: sensorIdCounter++,
       r: randInt(3, ROWS - 4),
       c: randInt(3, COLS - 4),
       radius: randInt(3, 6),
       triggered: false,
+      reading: 0,
     });
   }
+}
+
+function clearScenarioTimers() {
+  scenarioTimers.forEach((t) => clearTimeout(t));
+  scenarioTimers = [];
+}
+
+function seedScenario(scenario) {
+  if (!scenario?.seeds) return;
+  for (const seed of scenario.seeds) {
+    const keyStr = key([seed.r, seed.c]);
+    if (maze[seed.r][seed.c] !== WALL) {
+      hazards.set(keyStr, { intensity: seed.intensity });
+    }
+  }
+}
+
+function scheduleSuppressions(scenario) {
+  clearScenarioTimers();
+  (scenario?.suppression || []).forEach((step) => {
+    const tid = setTimeout(() => {
+      for (const [hk, data] of [...hazards.entries()]) {
+        const [r, c] = parseKey(hk);
+        const d = Math.hypot(r - (scenario.seeds?.[0]?.r || r), c - (scenario.seeds?.[0]?.c || c));
+        if (d <= (step.radius || 6)) {
+          data.intensity *= 1 - step.power;
+          if (data.intensity < 2) hazards.delete(hk);
+        }
+      }
+    }, step.t * 1000);
+    scenarioTimers.push(tid);
+  });
+}
+
+function applyWind(scenario) {
+  const dx = scenario?.wind?.dx || 0;
+  const dy = scenario?.wind?.dy || 0;
+  windState.dx = dx;
+  windState.dy = dy;
+  windState.mag = Math.hypot(dx, dy);
+}
+
+function applyScenario(id) {
+  const next = scenarios.find((s) => s.id === id);
+  if (!next) return;
+  currentScenario = next;
+  resetWorld();
 }
 
 function spawnPeople(m) {
@@ -441,10 +648,25 @@ function spawnPeople(m) {
 
 function resetWorld() {
   evacStarted = false;
+  metrics = {
+    startedAt: performance.now(),
+    evacStartedAt: null,
+    evacEndedAt: null,
+    congestionNow: 0,
+    congestionMax: 0,
+  };
+  clearScenarioTimers();
   hazards.clear();
+  heatGrid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => 0));
+  smokeGrid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => 0));
   maze = createMaze();
   people = spawnPeople(maze);
   spawnSensors();
+  seedScenario(currentScenario);
+  scheduleSuppressions(currentScenario);
+  applyWind(currentScenario);
+  startMockSocket();
+  wireMockFeed();
   camera.centerOnMap();
   camera.target = null;
   updateHUD();
@@ -487,7 +709,7 @@ canvas.addEventListener('mousedown', (e) => {
     const gridR = Math.floor((my + camera.y) / camera.tileH);
     const gridC = Math.floor((mx + camera.x) / camera.tileW);
     if (gridR >= 1 && gridR < ROWS - 1 && gridC >= 1 && gridC < COLS - 1) {
-      sensorNodes.push({ r: gridR, c: gridC, radius: randInt(3, 6), triggered: false });
+      sensorNodes.push({ id: sensorIdCounter++, r: gridR, c: gridC, radius: randInt(3, 6), triggered: false, reading: 0 });
     }
   } else {
     for (const p of people) {
@@ -543,7 +765,7 @@ function triggerBomb() {
         p.setThought('EARS RINGING!');
       }
     }
-    if (Math.random() < 0.5) hazards.set(key([ir, ic]), 20);
+    if (Math.random() < 0.5) hazards.set(key([ir, ic]), { intensity: 28 });
   }
 }
 
@@ -562,19 +784,21 @@ function triggerFire() {
   for (let i = 0; i < 10; i++) {
     const fx = randInt(2, ROWS - 2);
     const fy = randInt(2, COLS - 2);
-    if (maze[fx][fy] !== WALL) hazards.set(key([fx, fy]), 25);
+    if (maze[fx][fy] !== WALL) hazards.set(key([fx, fy]), { intensity: 35 });
   }
 }
 
 function update(dt) {
   handleCameraMovement(dt);
   camera.update();
+  rebuildOccupancy();
   updateHazards(dt);
   updateSensors();
 
   for (const p of people) {
     p.update(dt, maze, hazards);
   }
+  updateMetrics();
 }
 
 function handleCameraMovement(dt) {
@@ -589,37 +813,116 @@ function handleCameraMovement(dt) {
 }
 
 function updateHazards(dt) {
-  for (const [k, timer] of [...hazards.entries()]) {
-    const next = timer - dt;
-    if (next <= 0) hazards.delete(k);
-    else hazards.set(k, next);
+  // decay smoke and clear heat
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      heatGrid[r][c] = 0;
+      smokeGrid[r][c] *= Math.pow(SMOKE_DECAY, dt * 30);
+    }
   }
 
-  if (Math.random() < 0.1 && hazards.size) {
-    const keys = [...hazards.keys()];
-    const src = parseKey(pick(keys));
-    const nr = src[0] + randInt(-1, 1);
-    const nc = src[1] + randInt(-1, 1);
-    if (nr >= 0 && nc >= 0 && nr < ROWS && nc < COLS && maze[nr][nc] !== WALL) {
-      const k = key([nr, nc]);
-      if (!hazards.has(k)) hazards.set(k, 10);
+  const additions = [];
+  for (const [k, data] of [...hazards.entries()]) {
+    let { intensity } = data;
+    intensity = Math.max(0, intensity - FIRE_DECAY * dt);
+    if (intensity <= 1) {
+      hazards.delete(k);
+      continue;
     }
+    data.intensity = intensity;
+    const [r, c] = parseKey(k);
+
+    // accumulate heat & smoke diffusion
+    for (let dr = -4; dr <= 4; dr++) {
+      for (let dc = -4; dc <= 4; dc++) {
+        const nr = r + dr;
+        const nc = c + dc;
+        if (nr < 0 || nc < 0 || nr >= ROWS || nc >= COLS) continue;
+        const dist = Math.abs(dr) + Math.abs(dc);
+        const falloff = Math.max(0, 1 - dist * 0.2);
+        heatGrid[nr][nc] += intensity * falloff;
+        smokeGrid[nr][nc] += intensity * 0.1 * falloff * (currentScenario?.smokeBoost || 1);
+      }
+    }
+
+    if (intensity > 32 && maze[r][c] === FLOOR) maze[r][c] = RUBBLE;
+
+    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      const nr = r + dr;
+      const nc = c + dc;
+      if (nr < 1 || nc < 1 || nr >= ROWS - 1 || nc >= COLS - 1) continue;
+      if (maze[nr][nc] === WALL) continue;
+      const occ = occupancyGrid?.[nr]?.[nc] || 0;
+      const predicted = predictSpread(intensity, heatGrid[nr][nc], smokeGrid[nr][nc], occ, windState.mag);
+      const chance = FIRE_SPREAD * dt * (intensity / 30) * (1 + windState.mag * 0.8) * predicted;
+      if (Math.random() < chance) additions.push([nr, nc, intensity * 0.65 + 6]);
+      const wr = r + Math.sign(windState.dy);
+      const wc = c + Math.sign(windState.dx);
+      if (wr >= 1 && wc >= 1 && wr < ROWS - 1 && wc < COLS - 1 && maze[wr][wc] !== WALL) {
+        if (Math.random() < chance * 0.6) additions.push([wr, wc, intensity * 0.55 + 4]);
+      }
+    }
+  }
+
+  for (const [r, c, power] of additions) {
+    const k = key([r, c]);
+    if (!hazards.has(k)) hazards.set(k, { intensity: power });
+    else hazards.get(k).intensity = Math.max(hazards.get(k).intensity, power);
   }
 
   if (hazards.size && !evacStarted) beginEvac();
 }
 
+function predictSpread(intensity, heat, smoke, occupancy, windMag) {
+  const baseline = Math.min(1, 0.25 + intensity / 60 + smoke / 120 + occupancy * 0.1 + windMag * 0.4);
+  if (!window.tf || !tf?.tensor) return baseline;
+  return tf.tidy(() => {
+    const input = tf.tensor2d([[intensity / 60, heat / 80, smoke / 90, occupancy / 5, windMag / 3]]);
+    const weights = tf.tensor2d([[0.6], [0.4], [0.5], [0.35], [0.3]]);
+    const bias = tf.scalar(0.1);
+    const score = input.matMul(weights).add(bias).sigmoid();
+    return score.dataSync()[0];
+  });
+}
+
 function updateSensors() {
   for (const s of sensorNodes) {
-    s.triggered = false;
+    s.reading *= 0.92;
+    let hazardTriggered = false;
     for (const [hk] of hazards) {
       const [hr, hc] = parseKey(hk);
       const d = Math.hypot(hr - s.r, hc - s.c);
       if (d <= s.radius) {
-        s.triggered = true;
+        hazardTriggered = true;
+        s.reading = Math.max(s.reading, Math.max(getHeat(hr, hc), getSmoke(hr, hc)));
         break;
       }
     }
+    s.triggered = hazardTriggered || s.reading > 15;
+  }
+}
+
+function updateMetrics() {
+  let maxCell = 0;
+  for (let r = 0; r < occupancyGrid.length; r++) {
+    for (let c = 0; c < occupancyGrid[r].length; c++) {
+      if (occupancyGrid[r][c] > maxCell) maxCell = occupancyGrid[r][c];
+    }
+  }
+  metrics.congestionNow = maxCell;
+  metrics.congestionMax = Math.max(metrics.congestionMax, maxCell);
+
+  if (evacStarted && !metrics.evacStartedAt) metrics.evacStartedAt = performance.now();
+
+  const alive = people.filter((p) => p.alive && !p.escaped).length;
+  const escaped = people.filter((p) => p.escaped).length;
+  if (evacStarted && (escaped === people.length || alive === 0) && !metrics.evacEndedAt) {
+    metrics.evacEndedAt = performance.now();
+    console.log('Evac complete', {
+      evacTimeMs: metrics.evacEndedAt - metrics.evacStartedAt,
+      congestionMax: metrics.congestionMax,
+      escaped,
+    });
   }
 }
 
@@ -634,6 +937,7 @@ function draw() {
     }
   }
 
+  drawSmoke();
   if (overlayState.showHeatmap) drawHeatmap();
 
   drawSensors();
@@ -732,17 +1036,23 @@ function drawHeatmap() {
     for (let c = 0; c < COLS; c++) {
       const pos = camera.toScreen(r, c);
       if (pos.x < -camera.tileW || pos.x > screenWidth + camera.tileW || pos.y < -camera.tileH || pos.y > screenHeight + camera.tileH) continue;
-      const cellKey = key([r, c]);
-      let risk = 0;
-      if (hazards.has(cellKey)) risk += hazards.get(cellKey) * 2;
-      for (const [hk] of hazards) {
-        const [hr, hc] = parseKey(hk);
-        const d = Math.abs(hr - r) + Math.abs(hc - c);
-        risk += Math.max(0, 20 - d);
-      }
+      const risk = heatGrid[r][c];
       if (risk <= 0) continue;
       const alpha = Math.min(0.35, risk / maxRisk);
       ctx.fillStyle = `rgba(255, 99, 71, ${alpha})`;
+      ctx.fillRect(pos.x, pos.y, camera.tileW, camera.tileH);
+    }
+  }
+}
+
+function drawSmoke() {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const level = smokeGrid[r][c];
+      if (level < 8) continue;
+      const pos = camera.toScreen(r, c);
+      const alpha = Math.min(0.45, level / 80);
+      ctx.fillStyle = `rgba(120, 130, 140, ${alpha})`;
       ctx.fillRect(pos.x, pos.y, camera.tileW, camera.tileH);
     }
   }
@@ -784,7 +1094,7 @@ function drawGuidancePath() {
     }
   }
   if (!bestExit) return;
-  const path = pathfinder.findPath([candidate.r, candidate.c], bestExit, maze, new Set(hazards.keys()));
+  const path = pathfinder.findPath([candidate.r, candidate.c], bestExit, maze, hotspotKeys(hazards, 5));
   if (!path.length) return;
   ctx.strokeStyle = 'rgba(124, 214, 241, 0.9)';
   ctx.lineWidth = 3;
@@ -801,7 +1111,8 @@ function drawGuidancePath() {
 function drawLightingMask() {
   if (!camera.target) return;
   const pos = camera.toScreen(camera.target.exactR, camera.target.exactC);
-  const radius = 200 * camera.zoom;
+  const smokeLevel = getSmoke(camera.target.r, camera.target.c);
+  const radius = Math.max(120 * camera.zoom, (200 - smokeLevel * 2) * camera.zoom);
 
   ctx.save();
   ctx.fillStyle = 'rgba(30,30,30,0.8)';
@@ -883,6 +1194,12 @@ function updateHUD() {
   const targetText = camera.target
     ? `Tracking ID ${camera.target.id} · ${camera.target.thought}`
     : 'Camera free · click a person to follow';
+  const evacTime =
+    metrics.evacEndedAt && metrics.evacStartedAt
+      ? metrics.evacEndedAt - metrics.evacStartedAt
+      : metrics.evacStartedAt
+      ? performance.now() - metrics.evacStartedAt
+      : null;
 
   if (setHudState) {
     setHudState({
@@ -891,6 +1208,9 @@ function updateHUD() {
       hazards: hazards.size,
       sensors: `${activeSensors}/${sensorNodes.length}`,
       status: evacStarted ? 'Evacuating' : 'Working',
+       scenario: currentScenario.name,
+       congestion: `${metrics.congestionNow}/${metrics.congestionMax}`,
+       evacTime: formatTime(evacTime),
       target: targetText,
     });
   }
@@ -904,7 +1224,7 @@ function loop(ts) {
   requestAnimationFrame(loop);
 }
 
-root.render(html`<${App} onReset=${resetWorld} onBomb=${triggerBomb} onQuake=${triggerQuake} onFire=${triggerFire} />`);
+root.render(html`<${App} scenariosList=${scenarios} onScenario=${applyScenario} onReset=${resetWorld} onBomb=${triggerBomb} onQuake=${triggerQuake} onFire=${triggerFire} />`);
 
 resetWorld();
 requestAnimationFrame(loop);

@@ -79,6 +79,15 @@ body {
   font-size: 13px;
 }
 
+.controls select {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-left: 6px;
+}
+
 .hud__actions {
   display: flex;
   gap: 8px;

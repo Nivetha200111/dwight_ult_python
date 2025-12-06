@@ -24,5 +24,8 @@ vercel --prod
 - Workers idle until you trigger a disaster (Bomb/Quake/Fire); then they evacuate toward exits.
 - Camera pan/zoom, person selection with POV light mask, and thought bubbles.
 - Bomb/quake/fire events, stun + health logic, and pathfinding toward exits.
-- React overlay HUD (CDN React 18 + htm) with quick action buttons, toggles for heatmap/sensors/guidance.
-- IoT-style sensor nodes (auto-placed or shift-click to place) with live trigger state and coverage rings; risk heatmap and guidance path overlay.
+- Fire now has intensity, spread/decay, smoke and heat; smoke reduces visibility and speed, heat damages and reroutes evac paths.
+- Scenario gallery (electrical/chemical/kitchen) with auto-seeded ignitions, wind, and timed suppression bursts.
+- React overlay HUD (CDN React 18 + htm) with quick action buttons, toggles for heatmap/sensors/guidance, scenario selector, metrics (evac time, congestion).
+- IoT-style sensor nodes (auto-placed or shift-click to place) with live trigger state and coverage rings; mock WebSocket feed simulates sensor updates.
+- Optional TF.js spread predictor (CDN) adjusts fire propagation based on heat/smoke/occupancy/wind for a “smart safety” angle.
