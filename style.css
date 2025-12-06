@@ -32,6 +32,8 @@ body {
   height: 100vh;
   display: block;
   background: #0d0e10;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 #app {

@@ -31,6 +31,7 @@ const ctx = canvas.getContext('2d');
 
 let W = window.innerWidth;
 let H = window.innerHeight;
+let selectedDisaster = 'fire'; // fire | bomb | quake | flood
 
 // Tile Types
 const FLOOR = 0;
@@ -1278,6 +1279,13 @@ function drawBombExplosions() {
   }
 }
 
+function drawScanlines() {
+  ctx.fillStyle = 'rgba(0,0,0,0.07)';
+  for (let y = 0; y < H; y += 6) {
+    ctx.fillRect(0, y, W, 2);
+  }
+}
+
 function drawPheromones() {
   const size = TILE * camera.zoom;
 
@@ -1441,6 +1449,7 @@ function drawPerson(person) {
 }
 
 function render() {
+  ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, W, H);
 
   // Background
@@ -1491,6 +1500,8 @@ function render() {
       ctx.fillRect(0, 0, W, H);
     }
   }
+
+  drawScanlines();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1556,6 +1567,15 @@ function updateHUD() {
       confidence: lstm.confidence,
       predictions: predictions.length
     },
+    aco: {
+      pheromone: getAcoStrength()
+    },
+    hazards: {
+      bombs: hazards.bombExplosions.length,
+      flood: hazards.flood.length,
+      quake: hazards.earthquakeActive,
+      tool: selectedDisaster
+    },
     sensors: {
       triggered: sensors.getTriggeredCount(),
       total: sensors.sensors.length,
@@ -1581,6 +1601,18 @@ function loop(ts) {
   requestAnimationFrame(loop);
 }
 
+function getAcoStrength() {
+  let sum = 0;
+  let count = 0;
+  for (let r = 0; r < ROWS; r += 5) {
+    for (let c = 0; c < COLS; c += 5) {
+      sum += aco.safePheromone[r][c];
+      count++;
+    }
+  }
+  return count ? sum / count : 0;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // INPUT HANDLING
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1597,6 +1629,10 @@ window.addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() === 'r') reset();
   if (e.key.toLowerCase() === 'a') alarmActive = true;
   if (e.key.toLowerCase() === 'p') paused = !paused;
+  if (e.key === '1') selectedDisaster = 'fire';
+  if (e.key === '2') selectedDisaster = 'bomb';
+  if (e.key === '3') selectedDisaster = 'quake';
+  if (e.key === '4') selectedDisaster = 'flood';
 });
 
 window.addEventListener('keyup', (e) => {
@@ -1612,11 +1648,14 @@ canvas.addEventListener('mousedown', (e) => {
   const gridR = Math.floor((my + camera.y) / (TILE * camera.zoom));
 
   if (e.button === 2 || e.ctrlKey) {
-    // Right click - add fire
+    // Right click - place selected hazard
     if (gridR > 0 && gridR < ROWS - 1 && gridC > 0 && gridC < COLS - 1) {
       const tile = maze[gridR][gridC];
       if (tile !== WALL && tile !== WINDOW) {
-        hazards.addFire(gridR, gridC);
+        if (selectedDisaster === 'fire') hazards.addFire(gridR, gridC);
+        else if (selectedDisaster === 'bomb') hazards.triggerBomb(gridR, gridC, 6);
+        else if (selectedDisaster === 'quake') hazards.triggerEarthquake(8);
+        else if (selectedDisaster === 'flood') hazards.triggerFlood(gridR, gridC);
       }
     }
   } else {
@@ -1681,6 +1720,8 @@ const initialHud = {
   alive: 0, escaped: 0, deaths: 0, fires: 0, alarm: false,
   neural: { confidence: 0, predictions: 0 },
   sensors: { triggered: 0, total: 0, temp: 22 },
+  aco: { pheromone: 0 },
+  hazards: { bombs: 0, flood: 0, quake: false, tool: 'fire' },
   target: null
 };
 
@@ -1690,7 +1731,7 @@ function App() {
 
   const targetInfo = hud.target
     ? `${hud.target.name} | ${hud.target.state} | HP: ${Math.round(hud.target.health)}% | "${hud.target.thought}"`
-    : 'Click a person to follow (Right-click to start fire)';
+    : 'Click a person to follow (Right-click to place disaster)';
 
   return html`
     <div class="overlay ${hud.alarm ? 'alarm-active' : ''}">
@@ -1706,6 +1747,9 @@ function App() {
             <span class="chip success">Escaped: ${hud.escaped}</span>
             <span class="chip ${hud.deaths > 0 ? 'danger' : ''}">Deaths: ${hud.deaths}</span>
             <span class="chip ${hud.fires > 0 ? 'warning' : ''}">Fires: ${hud.fires}</span>
+            <span class="chip">Bombs: ${hud.hazards.bombs}</span>
+            <span class="chip">Flood: ${hud.hazards.flood}</span>
+            <span class="chip ${hud.hazards.quake ? 'warning' : ''}">Quake: ${hud.hazards.quake ? 'Active' : 'Idle'}</span>
             <span class="chip ${hud.alarm ? 'danger' : ''}">
               ${hud.alarm ? 'ALARM ACTIVE' : 'Standby'}
             </span>
@@ -1718,16 +1762,22 @@ function App() {
             <span class="chip neural">
               Predictions: ${hud.neural.predictions}
             </span>
+            <span class="chip neural">
+              ACO Phero: ${(hud.aco.pheromone * 100).toFixed(0)}%
+            </span>
             <span class="chip sensor">
               Sensors: ${hud.sensors.triggered}/${hud.sensors.total}
             </span>
             <span class="chip">
               Temp: ${hud.sensors.temp.toFixed(1)}C
             </span>
+            <span class="chip">
+              Tool: ${hud.hazards.tool.toUpperCase()}
+            </span>
           </div>
 
           <div class="controls-hint">
-            WASD: Pan | Scroll: Zoom | Click: Follow | Right-click: Fire | A: Alarm | R: Reset | P: Pause
+            WASD: Pan | Scroll: Zoom | Click: Follow | Right-click: Place hazard | 1 Fire | 2 Bomb | 3 Quake | 4 Flood | A Alarm | R Reset | P Pause
           </div>
         </div>
 
