@@ -1751,51 +1751,7 @@ class Person:
                 self.state = STATE_EVACUATING
                 self.state_timer = 0
             return
-        if self.state == STATE_EVACUATING:
-            if not self.path_to_exit or self.repath_timer <= 0:
-                self.find_safest_exit()
-                self.repath_timer = 2.0  # Repath every 2 seconds
-            self.repath_timer -= dt
-            
-            if not self.path_to_exit:
-                self.state = STATE_PANICKING
-                return
-            
-            # Move along path
-            if not self.moving and self.path_index < len(self.path_to_exit):
-                nr, nc = self.path_to_exit[self.path_index]
-                
-                # Check for new hazards on path
-                if disasters.is_dangerous(nr, nc):
-                    self.find_safest_exit() # Recalculate path
-                    if not self.path_to_exit or self.path_to_exit[self.path_index] != (nr, nc):
-                        self.state = STATE_PANICKING # Path blocked, panic!
-                        return
-                
-                self.tx = nc * TILE + TILE // 2
-                self.ty = nr * TILE + TILE // 2
-                self.row, self.col = nr, nc
-                self.path.append((nr, nc))
-                self.moving = True
-                self.path_index += 1
-            
-            # Check if at exit
-            if maze[self.row][self.col] == EXIT:
-                self.escaped = True
-                stats['escaped'] += 1
-                sound_system.play('escape', 0.4)
-                return
         
-        if self.state == STATE_PANICKING:
-            # Try to flee from immediate danger, then find exit
-            if not self.moving:
-                flee_target = self.flee_from_danger()
-                if flee_target:
-                    nr, nc = flee_target
-                    self.tx = nc * TILE + TILE // 2
-                    self.ty = nr * TILE + TILE // 2
-                    self.row, self.col = nr, nc
-                    self.path.append((nr, nc))
         # Evacuating or panicking
         if self.moving:
             self.walk_frame += dt * 12

@@ -18,6 +18,12 @@ vercel --prod
 ```
 - Vercel will treat the project as a static site; no build step required.
 
+If you prefer a quick local preview:
+```bash
+python -m http.server 8000
+```
+then open http://localhost:8000.
+
 ## What’s included
 
 - Full-screen **top-down** canvas rendering of the grid, rubble, exits, and hazard spread (no isometric tilt).

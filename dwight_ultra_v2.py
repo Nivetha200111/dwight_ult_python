@@ -48,6 +48,16 @@ The pheromone weights are DYNAMICALLY MODULATED by neural network confidence sco
 creating a hybrid bio-inspired + deep learning approach that is novel and patentable.
 """
 
+import os
+
+# Headless mode allows this module to be imported by serverless environments (e.g., Vercel)
+# where there is no display or audio device.
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+HEADLESS = bool(os.environ.get("HEADLESS") or os.environ.get("VERCEL") or os.environ.get("CI"))
+if HEADLESS:
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+
 import pygame
 import pygame.gfxdraw
 import random
@@ -60,13 +70,14 @@ from typing import List, Tuple, Dict, Optional
 import time
 
 pygame.init()
-pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+if not HEADLESS:
+    pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ROWS = 50
+ROWS = 45 # Keep rows/cols consistent with original for map generation
 COLS = 70
 TILE = 14
 TOTAL_PEOPLE = 60
@@ -79,8 +90,11 @@ PANEL_WIDTH = 380
 SCREEN_WIDTH = MAP_WIDTH + PANEL_WIDTH
 SCREEN_HEIGHT = MAP_HEIGHT + 80
 
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("🧠 DWIGHT UX - Neural ACO Emergency Response System")
+if HEADLESS:
+    screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+else:
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption("🧠 DWIGHT UX - Neural ACO Emergency Response System")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DEEP LEARNING - LSTM FIRE PREDICTION (Simplified NumPy Implementation)
@@ -761,7 +775,18 @@ class SoundSystem:
             self.sounds['alarm'].stop()
             self.alarm_playing = False
 
-sound_system = SoundSystem()
+class SilentSoundSystem:
+    """No-op sound system for headless/serverless execution."""
+    def play(self, name, volume=0.5):
+        return None
+
+    def start_alarm(self):
+        return None
+
+    def stop_alarm(self):
+        return None
+
+sound_system = SilentSoundSystem() if HEADLESS else SoundSystem()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COLORS (Enhanced for 3D look)
@@ -1651,6 +1676,10 @@ def spawn_sensors(maze, count):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    if HEADLESS:
+        print("Headless mode enabled; use run_headless_simulation() instead of the interactive loop.")
+        return
+
     # Initialize systems
     maze, exits = generate_building()
     lstm_predictor = SimpleLSTMPredictor()
@@ -1831,6 +1860,81 @@ def main():
     print(f"Neural Confidence Final: {neural_aco.neural_confidence:.1%}")
     print(f"RL Decisions Made: {rl_coordinator.decisions_made}")
     print(f"{'='*60}")
+
+def run_headless_simulation(steps=240, dt=1 / 30.0):
+    """
+    Run a trimmed-down simulation loop without rendering.
+    Designed for serverless environments (e.g., Vercel) where no display/audio exists.
+    """
+    maze, exits = generate_building()
+    lstm_predictor = SimpleLSTMPredictor()
+    neural_aco = NeuralACO(lstm_predictor)
+    pathfinder = NeuralPathfinder(neural_aco)
+    disasters = Disasters()
+    alarm = AlarmSystem()
+    sensor_network = spawn_sensors(maze, NUM_SENSORS)
+    rl_coordinator = RLEvacuationCoordinator()
+    people = spawn_people(maze, TOTAL_PEOPLE, NUM_WARDENS)
+
+    stats = {'escaped': 0, 'deaths': 0, 'total': TOTAL_PEOPLE}
+
+    # Seed an ignition so the loop has meaningful activity.
+    disasters.add_fire(ROWS // 2, COLS // 2)
+
+    neural_update_timer = 0.0
+    rl_update_timer = 0.0
+    steps_run = 0
+
+    for _ in range(int(steps)):
+        steps_run += 1
+        disasters.update(dt, maze, neural_aco)
+        alarm.update(dt)
+
+        if disasters.hazards and not alarm.active:
+            alarm.trigger()
+
+        neural_update_timer += dt
+        if neural_update_timer > 0.5:
+            fire_positions = disasters.get_fire_positions()
+            sensor_data = sensor_network.get_sensor_fusion_data()
+            neural_aco.update_predictions(fire_positions, sensor_data, maze)
+            neural_update_timer = 0.0
+
+        people_positions = [(p.row, p.col) for p in people if p.alive and not p.escaped]
+        sensor_network.update(dt, disasters.get_fire_positions(), disasters.smoke, people_positions, maze)
+
+        rl_update_timer += dt
+        if rl_update_timer > 2.0 and alarm.active:
+            wardens = [p for p in people if p.is_warden and p.alive]
+            exits_status = {e: False for e in exits}
+            rl_coordinator.step(disasters.get_fire_positions(), people, exits_status, wardens)
+            rl_update_timer = 0.0
+
+        neural_aco.evaporate()
+
+        for p in people:
+            p.update(dt, maze, exits, disasters.hazards, pathfinder,
+                     alarm.active, people, disasters.smoke, neural_aco)
+
+        stats['escaped'] = sum(1 for p in people if p.escaped)
+        stats['deaths'] = sum(1 for p in people if not p.alive)
+
+        # Exit early if everyone is resolved
+        if stats['escaped'] + stats['deaths'] >= stats['total']:
+            break
+
+    sensor_snapshot = sensor_network.get_sensor_fusion_data()
+    return {
+        'steps_run': steps_run,
+        'escaped': stats['escaped'],
+        'deaths': stats['deaths'],
+        'alive': stats['total'] - stats['escaped'] - stats['deaths'],
+        'fires_active': len(disasters.get_fire_positions()),
+        'neural_confidence': neural_aco.neural_confidence,
+        'rl_decisions': rl_coordinator.decisions_made,
+        'sensor_coverage': sensor_snapshot.get('coverage', 0),
+        'avg_temp': sensor_snapshot.get('temperature_avg', 0),
+    }
 
 if __name__ == "__main__":
     main()
