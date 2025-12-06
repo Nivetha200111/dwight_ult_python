@@ -125,7 +125,7 @@
       overflow: hidden;
       height: 100%;
     }
-    #canvas {
+    #sim, #canvas {
       width: 100%;
       height: 100%;
       display: block;
@@ -214,7 +214,7 @@
         </div>
       </div>
       <div class="canvas-wrap corners">
-        <canvas id="canvas"></canvas>
+        <canvas id="sim"></canvas>
         <div class="night-vision" id="nv"></div>
         <div class="scanlines"></div>
         <div class="aberration" id="ab"></div>
@@ -270,9 +270,11 @@
     };
 
     // Chromatic aberration toggle for canvas/text
-    const canvasEl = document.getElementById('canvas');
+    const canvasEl = document.getElementById('sim');
     const abEl = document.getElementById('ab');
     abEl.classList.add('active');
   </script>
+  <div id="app"></div>
+  <script type="module" src="main.js"></script>
 </body>
 </html>

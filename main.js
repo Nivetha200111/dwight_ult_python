@@ -1602,6 +1602,23 @@ function updateHUD() {
       thought: targetPerson.thought
     } : null
   });
+
+  // Bridge to external UI (CRT wrapper)
+  if (typeof window.updateApocStats === 'function') {
+    window.updateApocStats({
+      alive,
+      escaped,
+      deaths,
+      fires: hazards.fires.length,
+      bombs: hazards.bombExplosions.length,
+      flood: hazards.flood.length,
+      quake: hazards.earthquakeActive,
+      neural: lstm.confidence,
+      aco: getAcoStrength(),
+      sensors: `${sensors.getTriggeredCount()}/${sensors.sensors.length}`,
+      temp: sensors.getAvgTemp().toFixed(1) + 'C'
+    });
+  }
 }
 
 function loop(ts) {
