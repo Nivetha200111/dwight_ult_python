@@ -942,13 +942,9 @@ function draw() {
 
   drawSensors();
 
-  for (const [k] of hazards) {
+  for (const [k, data] of hazards) {
     const [r, c] = parseKey(k);
-    const pos = camera.toScreen(r, c);
-    ctx.beginPath();
-    ctx.fillStyle = Colors.FIRE;
-    ctx.arc(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2, 6 * camera.zoom, 0, Math.PI * 2);
-    ctx.fill();
+    drawFireCell(r, c, data.intensity);
   }
 
   people.sort((a, b) => a.exactR + a.exactC - (b.exactR + b.exactC));
@@ -1135,6 +1131,37 @@ function drawLightingMask() {
   ctx.restore();
 
   drawThoughtBubble(camera.target, pos);
+}
+
+function drawFireCell(r, c, intensity) {
+  const pos = camera.toScreen(r, c);
+  const baseX = pos.x + camera.tileW / 2;
+  const baseY = pos.y + camera.tileH / 2;
+  const time = performance.now() / 1000;
+  const flicker = 0.6 + Math.sin(time * 12 + (r + c)) * 0.15 + Math.random() * 0.05;
+  const core = Math.min(12 * camera.zoom, 6 + intensity * 0.2) * flicker;
+  const glow = core * 2.2;
+
+  const grad = ctx.createRadialGradient(baseX, baseY, core * 0.4, baseX, baseY - 4, glow);
+  grad.addColorStop(0, 'rgba(255, 210, 120, 0.95)');
+  grad.addColorStop(0.4, 'rgba(255, 150, 60, 0.75)');
+  grad.addColorStop(1, 'rgba(180, 50, 20, 0)');
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(baseX, baseY - 6, glow * 0.6, glow, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = `rgba(255, ${Math.max(120, 180 - intensity)}, 80, 0.9)`;
+  ctx.beginPath();
+  ctx.moveTo(baseX, baseY - core * 1.5);
+  ctx.lineTo(baseX - core * 0.6, baseY + core * 0.4);
+  ctx.lineTo(baseX + core * 0.6, baseY + core * 0.4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawThoughtBubble(p, pos) {
