@@ -556,15 +556,15 @@ class Person {
 
   getWorkingThought() {
     const thoughts = {
-      manager: ["That's what she said!", "I am the best boss", "World's best boss"],
-      warden: ["Bears. Beets. Battlestar Galactica.", "MICHAEL!", "Fire safety is no joke"],
-      sales: ["Big sale coming", "Customer call", "Working on leads"],
-      reception: ["Dunder Mifflin, this is Pam", "Taking messages", "Filing papers"],
+      manager: ["That's what she said!", "Big boss energy", "World's best boss (self-awarded)"],
+      warden: ["Bears. Beets. Battlestar Galactica.", "MICHAEL!", "Fire drills are my cardio"],
+      sales: ["Big sale coming", "Dialing for dollars", "Working on leads"],
+      reception: ["Dunder Mifflin, this is Pam", "Color-coding forms", "Sketching on sticky notes"],
       accounting: ["Crunching numbers", "Balancing books", "Tax season..."],
       hr: ["Nobody likes HR", "Filing complaint", "Mediation time"],
       temp: ["I'm a temp", "Business school", "Fire Guy was ONE time"],
       customer_service: ["OMG did you hear", "So anyway...", "Fashion emergency"],
-      warehouse: ["Moving boxes", "Forklift time", "Warehouse stuff"],
+      warehouse: ["Moving boxes", "Forklift time", "Warehouse hustle"],
       default: ["Working...", "Busy busy", "Almost Friday"]
     };
     return thoughts[this.role]?.[Math.floor(Math.random() * thoughts[this.role].length)] || thoughts.default[0];
@@ -575,6 +575,8 @@ class Person {
       manager: ["EVERYBODY STAY CALM!", "I DECLARE EVACUATE!", "Not again!"],
       warden: ["Follow me! I know the exits!", "Stay low!", "I trained for this!"],
       sales: ["Where's the exit?!", "Not my commission!", "Run!"],
+      reception: ["Phones down—move!", "Jim, this way!", "Pam sprinting!"],
+      accounting: ["Save the ledgers!", "Receipts later—run now!", "Do not trip, Kevin!"],
       default: ["FIRE!", "Help!", "Where do I go?!", "Stay calm stay calm"]
     };
     return thoughts[this.role]?.[Math.floor(Math.random() * (thoughts[this.role]?.length || 1))] ||
@@ -1201,6 +1203,16 @@ function drawFire(fire) {
   ctx.lineTo(cx + fireSize * 0.5, cy + fireSize * 0.3);
   ctx.closePath();
   ctx.fill();
+
+  // Sparks
+  for (let i = 0; i < 2; i++) {
+    const sx = cx + (Math.random() - 0.5) * fireSize;
+    const sy = cy - Math.random() * fireSize * 1.5;
+    ctx.fillStyle = 'rgba(255,220,120,0.8)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 1.5 * camera.zoom, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -1211,11 +1223,58 @@ function drawSmoke() {
       if (level > 0.1) {
         const pos = camera.toScreen(r, c);
         const size = TILE * camera.zoom;
-        const alpha = Math.min(level * 0.4, 0.6);
-        ctx.fillStyle = `rgba(80, 80, 90, ${alpha})`;
-        ctx.fillRect(pos.x, pos.y, size, size);
+        const t = performance.now() / 900;
+        const wobble = Math.sin(t + r * 0.4 + c * 0.3) * 0.2;
+        const alpha = Math.min(level * 0.35 + wobble * 0.05, 0.6);
+        ctx.fillStyle = `rgba(120, 130, 140, ${Math.max(0.08, alpha)})`;
+        ctx.beginPath();
+        ctx.ellipse(pos.x + size / 2, pos.y + size / 2 - 2, size * 0.7, size * 0.9, 0, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
+  }
+}
+
+function drawFlood() {
+  for (const tile of hazards.flood) {
+    const pos = camera.toScreen(tile.r, tile.c);
+    const size = TILE * camera.zoom;
+    const pulse = 0.6 + Math.sin(performance.now() / 400 + tile.r + tile.c) * 0.2;
+    const depthAlpha = Math.min(0.4, tile.depth * 0.4);
+    const grad = ctx.createRadialGradient(pos.x + size / 2, pos.y + size / 2, size * 0.2, pos.x + size / 2, pos.y + size / 2, size * 0.9);
+    grad.addColorStop(0, `rgba(80, 150, 255, ${depthAlpha + 0.1})`);
+    grad.addColorStop(1, `rgba(40, 90, 180, ${depthAlpha * 0.6})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(pos.x, pos.y, size, size);
+
+    ctx.strokeStyle = `rgba(120, 180, 255, ${depthAlpha})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(pos.x + size / 2, pos.y + size / 2, size * 0.35 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawBombExplosions() {
+  for (const exp of hazards.bombExplosions) {
+    const pos = camera.toScreen(exp.r, exp.c);
+    const size = TILE * camera.zoom;
+    const t = exp.age / exp.maxAge;
+    const radius = exp.radius * size * (0.8 + t * 1.2);
+    const alpha = Math.max(0, 0.6 - t * 0.6);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(255, 200, 60, ${alpha})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(pos.x + size / 2, pos.y + size / 2, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(255, 80, 40, ${alpha * 0.7})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pos.x + size / 2, pos.y + size / 2, radius * 0.65, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -1408,6 +1467,12 @@ function render() {
   for (const fire of hazards.fires) {
     drawFire(fire);
   }
+
+  // Draw flood
+  drawFlood();
+
+  // Draw bomb blasts
+  drawBombExplosions();
 
   // Draw sensors
   drawSensors();
