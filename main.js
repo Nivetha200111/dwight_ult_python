@@ -768,16 +768,201 @@ class Fire {
   }
 }
 
+class Rubble {
+  constructor(r, c, duration = 30) {
+    this.r = r;
+    this.c = c;
+    this.duration = duration;
+    this.age = 0;
+  }
+}
+
+class FloodTile {
+  constructor(r, c, depth = 0.5) {
+    this.r = r;
+    this.c = c;
+    this.depth = depth;
+    this.age = 0;
+  }
+}
+
 class HazardSystem {
   constructor() {
     this.fires = [];
     this.smoke = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    this.rubble = [];
+    this.flood = [];
+    this.earthquakeActive = false;
+    this.earthquakeIntensity = 0;
+    this.earthquakeTimer = 0;
+    this.bombExplosions = [];
+    this.currentDisaster = 'fire'; // fire, earthquake, bomb, flood
   }
 
   addFire(r, c) {
     if (!this.fires.find(f => f.r === r && f.c === c)) {
       this.fires.push(new Fire(r, c));
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EARTHQUAKE SYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  triggerEarthquake(intensity = 8) {
+    this.earthquakeActive = true;
+    this.earthquakeIntensity = intensity;
+    this.earthquakeTimer = 5 + Math.random() * 3; // 5-8 seconds
+
+    // Create rubble at random locations
+    const rubbleCount = Math.floor(intensity * 3);
+    for (let i = 0; i < rubbleCount; i++) {
+      const r = Math.floor(Math.random() * (ROWS - 4)) + 2;
+      const c = Math.floor(Math.random() * (COLS - 4)) + 2;
+      if (!this.rubble.find(rb => rb.r === r && rb.c === c)) {
+        this.rubble.push(new Rubble(r, c, 20 + Math.random() * 20));
+      }
+    }
+
+    // Stun nearby people
+    for (const person of people) {
+      if (person.alive && !person.escaped) {
+        person.stunned = true;
+        person.stunnedTimer = 1 + Math.random() * 2;
+        person.state = 'panicking';
+        person.thought = 'EARTHQUAKE!!!';
+      }
+    }
+  }
+
+  updateEarthquake(dt) {
+    if (!this.earthquakeActive) return;
+
+    this.earthquakeTimer -= dt;
+    this.earthquakeIntensity *= 0.98;
+
+    if (this.earthquakeTimer <= 0 || this.earthquakeIntensity < 0.5) {
+      this.earthquakeActive = false;
+      this.earthquakeIntensity = 0;
+    }
+
+    // Update rubble
+    for (const rb of this.rubble) {
+      rb.age += dt;
+    }
+    this.rubble = this.rubble.filter(rb => rb.age < rb.duration);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BOMB SYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  triggerBomb(r, c, radius = 6) {
+    // Create explosion effect
+    this.bombExplosions.push({
+      r, c, radius,
+      age: 0,
+      maxAge: 1.5
+    });
+
+    // Create fires at explosion site
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        const nr = r + dr, nc = c + dc;
+        const dist = Math.hypot(dr, dc);
+        if (dist <= radius && nr > 0 && nr < ROWS - 1 && nc > 0 && nc < COLS - 1) {
+          if (Math.random() < 0.4) {
+            this.addFire(nr, nc);
+          }
+          if (dist < radius / 2 && Math.random() < 0.6) {
+            this.rubble.push(new Rubble(nr, nc, 30 + Math.random() * 20));
+          }
+        }
+      }
+    }
+
+    // Stun and damage people in blast radius
+    for (const person of people) {
+      if (person.alive && !person.escaped) {
+        const dist = Math.hypot(person.r - r, person.c - c);
+        if (dist <= radius * 2) {
+          const damage = Math.max(0, 80 - dist * 10);
+          person.health -= damage;
+          person.stunned = true;
+          person.stunnedTimer = 2 + Math.random();
+          person.state = 'panicking';
+          person.thought = 'EXPLOSION!!!';
+        }
+      }
+    }
+  }
+
+  updateBombs(dt) {
+    for (const exp of this.bombExplosions) {
+      exp.age += dt;
+    }
+    this.bombExplosions = this.bombExplosions.filter(e => e.age < e.maxAge);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FLOOD SYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  triggerFlood(startR, startC) {
+    // Initial flood point
+    this.flood.push(new FloodTile(startR, startC, 1.0));
+    this.floodActive = true;
+  }
+
+  updateFlood(dt, maze, aco) {
+    if (this.flood.length === 0) {
+      this.floodActive = false;
+      return;
+    }
+
+    // Spread flood water
+    const newFlood = [];
+    for (const tile of this.flood) {
+      tile.age += dt;
+      tile.depth = Math.max(0.1, tile.depth - 0.01 * dt);
+
+      if (tile.depth > 0.3 && Math.random() < 0.03 * dt) {
+        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const nr = tile.r + dr, nc = tile.c + dc;
+          if (nr > 0 && nr < ROWS - 1 && nc > 0 && nc < COLS - 1) {
+            const mazeTile = maze[nr][nc];
+            if (mazeTile !== WALL && mazeTile !== WINDOW && mazeTile !== DESK) {
+              if (!this.flood.find(f => f.r === nr && f.c === nc) &&
+                  !newFlood.find(f => f.r === nr && f.c === nc)) {
+                newFlood.push(new FloodTile(nr, nc, tile.depth * 0.85));
+              }
+            }
+          }
+        }
+      }
+
+      // Flood deposits danger pheromones
+      aco.depositDanger(tile.r, tile.c, 0.5 * dt);
+    }
+
+    this.flood.push(...newFlood);
+
+    // Remove very shallow water
+    this.flood = this.flood.filter(f => f.depth > 0.05);
+
+    // Flood can extinguish fires
+    for (const floodTile of this.flood) {
+      const fireIdx = this.fires.findIndex(f => f.r === floodTile.r && f.c === floodTile.c);
+      if (fireIdx !== -1) {
+        this.fires[fireIdx].intensity -= floodTile.depth * 20 * dt;
+      }
+    }
+  }
+
+  isFlooded(r, c) {
+    const tile = this.flood.find(f => f.r === r && f.c === c);
+    return tile ? tile.depth : 0;
+  }
+
+  isRubble(r, c) {
+    return this.rubble.some(rb => rb.r === r && rb.c === c);
   }
 
   update(dt, maze, aco) {
@@ -834,11 +1019,23 @@ class HazardSystem {
     }
 
     this.fires.push(...newFires);
+
+    // Update other disaster systems
+    this.updateEarthquake(dt);
+    this.updateBombs(dt);
+    this.updateFlood(dt, maze, aco);
   }
 
   reset() {
     this.fires = [];
     this.smoke = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    this.rubble = [];
+    this.flood = [];
+    this.earthquakeActive = false;
+    this.earthquakeIntensity = 0;
+    this.earthquakeTimer = 0;
+    this.bombExplosions = [];
+    this.floodActive = false;
   }
 }
 
