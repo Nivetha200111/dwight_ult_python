@@ -345,6 +345,7 @@ class Person {
     if (this.role === 'leader') this.noticeDelay *= 0.5;
     this.aware = false;
     this.lastShout = 0;
+    this.lastDraw = null;
   }
 
   setThought(text) {
@@ -1094,6 +1095,10 @@ function drawTile(r, c, tile) {
   if (tile === WALL) {
     ctx.fillStyle = Colors.WALL_SIDE;
     ctx.fillRect(pos.x, pos.y + hTile - 4 * camera.zoom, w, 4 * camera.zoom);
+  } else if (tile === EXIT) {
+    const pulse = 0.7 + Math.sin(performance.now() / 300 + r + c) * 0.3;
+    ctx.fillStyle = `rgba(50,255,116,${pulse})`;
+    ctx.fillRect(pos.x, pos.y, w, hTile);
   }
 }
 
@@ -1111,6 +1116,21 @@ function drawPerson(p, timeVal) {
   let bob = 0;
   if (p.state === 'MOVING') bob = Math.sin(timeVal * 10 + p.animOffset) * 2 * zoom;
   else if (p.state === 'WORK') bob = Math.sin(timeVal * 2 + p.animOffset) * 1.2 * zoom;
+
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2 + 6 * zoom, 9 * zoom, 5 * zoom, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (p.state === 'MOVING' && p.lastDraw) {
+    ctx.strokeStyle = 'rgba(124,214,241,0.25)';
+    ctx.lineWidth = 2 * zoom;
+    ctx.beginPath();
+    ctx.moveTo(p.lastDraw.x, p.lastDraw.y);
+    ctx.lineTo(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2);
+    ctx.stroke();
+  }
 
   const radius = 7 * zoom;
   ctx.fillStyle = p.colorShirt;
@@ -1141,6 +1161,8 @@ function drawPerson(p, timeVal) {
     ctx.closePath();
     ctx.fill();
   }
+
+  p.lastDraw = { x: pos.x + camera.tileW / 2, y: pos.y + camera.tileH / 2 };
 }
 
 function drawHeatmap() {
@@ -1164,9 +1186,12 @@ function drawSmoke() {
       const level = smokeGrid[r][c];
       if (level < 8) continue;
       const pos = camera.toScreen(r, c);
-      const alpha = Math.min(0.45, level / 80);
-      ctx.fillStyle = `rgba(120, 130, 140, ${alpha})`;
-      ctx.fillRect(pos.x, pos.y, camera.tileW, camera.tileH);
+      const wobble = Math.sin((performance.now() / 600) + r * 0.5 + c * 0.3) * 0.2;
+      const alpha = Math.min(0.45, level / 80) + wobble * 0.05;
+      ctx.fillStyle = `rgba(120, 130, 140, ${Math.max(0.05, alpha)})`;
+      ctx.beginPath();
+      ctx.ellipse(pos.x + camera.tileW / 2, pos.y + camera.tileH / 2, camera.tileW * 0.7, camera.tileH * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 }
