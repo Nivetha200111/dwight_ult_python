@@ -1,17 +1,278 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DWIGHT - Dunder Mifflin Emergency Response System</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <title>DWIGHT // Y2K CRISIS TERMINAL</title>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0f2c;
+      --crt-green: #00ff33;
+      --crt-red: #ff0033;
+      --muted: #7fd3a0;
+      --border: #2aff7a;
+      --glow: 0 0 6px rgba(0,255,120,0.6), 0 0 18px rgba(0,255,120,0.3);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: radial-gradient(circle at 30% 20%, #10284a, #061428 55%, #020611 80%);
+      color: var(--crt-green);
+      font-family: 'VT323', monospace;
+      letter-spacing: 0.04em;
+      overflow: hidden;
+    }
+    .shell {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background: linear-gradient(180deg, rgba(0,20,50,0.65), rgba(0,0,0,0.8));
+      border: 3px dashed var(--border);
+      clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+      box-shadow: inset 0 0 30px rgba(0,255,120,0.12), 0 0 24px rgba(0,255,120,0.12);
+      filter: saturate(1.1) contrast(1.1);
+      overflow: hidden;
+    }
+    .marquee {
+      padding: 4px 12px;
+      font-size: 18px;
+      background: linear-gradient(90deg, rgba(255,0,51,0.2), rgba(0,255,120,0.15));
+      border-bottom: 2px dashed var(--border);
+      text-shadow: var(--glow);
+      white-space: nowrap;
+      overflow: hidden;
+      position: relative;
+    }
+    .marquee span {
+      display: inline-block;
+      animation: marquee 14s linear infinite;
+    }
+    @keyframes marquee {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .viewport {
+      position: relative;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 10px;
+      height: 100%;
+    }
+    .panel {
+      border: 2px dashed var(--border);
+      padding: 10px;
+      background: rgba(0, 8, 20, 0.65);
+      box-shadow: inset 0 0 20px rgba(0,255,120,0.08);
+    }
+    .panel h3 {
+      margin: 0 0 6px 0;
+      font-size: 18px;
+      color: var(--crt-red);
+      text-shadow: var(--glow);
+    }
+    .stats-grid {
+      display: grid;
+      gap: 4px;
+      font-size: 15px;
+    }
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dashed rgba(0,255,120,0.3);
+      padding: 2px 0;
+    }
+    .controls {
+      display: grid;
+      gap: 6px;
+    }
+    .btn {
+      font: inherit;
+      color: var(--crt-green);
+      background: rgba(0, 255, 120, 0.08);
+      border: 2px solid var(--border);
+      padding: 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 140ms ease;
+      box-shadow: 0 0 0 2px rgba(0,255,120,0.1), inset 0 0 10px rgba(0,255,120,0.15);
+    }
+    .btn:hover {
+      background: rgba(255,0,51,0.16);
+      color: var(--crt-red);
+      box-shadow: 0 0 10px rgba(255,0,51,0.35), inset 0 0 12px rgba(255,0,51,0.25);
+    }
+    .btn:active { filter: hue-rotate(-30deg) brightness(1.3); }
+    .btn.glitch { position: relative; overflow: hidden; }
+    .btn.glitch::after, .btn.glitch::before {
+      content: attr(data-label);
+      position: absolute;
+      left: 0; top: 0; width: 100%; height: 100%;
+      mix-blend-mode: screen;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+    .btn.glitch::before { color: #ff00ff; transform: translate(-2px, -1px); }
+    .btn.glitch::after { color: #00e5ff; transform: translate(2px, 1px); }
+    .canvas-wrap {
+      position: relative;
+      border: 3px dashed var(--border);
+      background: linear-gradient(180deg, #011020, #03060c);
+      box-shadow: inset 0 0 40px rgba(0,255,120,0.12);
+      overflow: hidden;
+      height: 100%;
+    }
+    #canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      filter: contrast(1.2) saturate(1.2);
+      image-rendering: pixelated;
+    }
+    .scanlines {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,0,0,0.1) 50%, rgba(0,0,0,0) 50%),
+        radial-gradient(circle at 50% 20%, rgba(0,255,120,0.04), rgba(0,0,0,0));
+      background-size: 100% 3px, 100% 100%;
+      mix-blend-mode: screen;
+    }
+    .aberration {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(90deg, rgba(255,0,0,0.03) 0, rgba(255,0,0,0.03) 1px, rgba(0,255,255,0.03) 2px, rgba(0,255,255,0.03) 3px);
+      mix-blend-mode: screen;
+    }
+    .curvature {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0) 60%, rgba(0,0,0,0.4));
+      mix-blend-mode: multiply;
+    }
+    .night-vision {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at center, rgba(0,255,120,0.15), rgba(0,255,120,0.02));
+      mix-blend-mode: screen;
+      opacity: 0;
+      transition: opacity 200ms ease;
+    }
+    .night-vision.active { opacity: 1; }
+    .bottom {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 12px;
+      border-top: 2px dashed var(--border);
+      background: rgba(0, 5, 12, 0.7);
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .corners::before, .corners::after {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+    }
+    .corners::before { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+    .corners::after { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+  </style>
 </head>
 <body>
-  <canvas id="sim"></canvas>
-  <div id="app"></div>
-  <script type="module" src="main.js"></script>
+  <div class="shell corners">
+    <div class="marquee"><span>⚠ SYSTEM CRITICAL // EVACUATION PROTOCOL FAILED ⚠  —  SIGNAL DEGRADATION —  OVERRIDE REQUIRED —  </span></div>
+    <div class="viewport">
+      <div class="panel">
+        <h3>STATUS // TELEMETRY</h3>
+        <div class="stats-grid" id="statsGrid">
+          <div class="stat"><span>Agents Alive</span><span data-stat="alive">--</span></div>
+          <div class="stat"><span>Escaped</span><span data-stat="escaped">--</span></div>
+          <div class="stat"><span>Deaths</span><span data-stat="deaths">--</span></div>
+          <div class="stat"><span>Fires</span><span data-stat="fires">--</span></div>
+          <div class="stat"><span>Bombs</span><span data-stat="bombs">--</span></div>
+          <div class="stat"><span>Flood Tiles</span><span data-stat="flood">--</span></div>
+          <div class="stat"><span>Quake</span><span data-stat="quake">--</span></div>
+          <div class="stat"><span>Neural Confidence</span><span data-stat="neural">--</span></div>
+          <div class="stat"><span>ACO Pheromone</span><span data-stat="aco">--</span></div>
+          <div class="stat"><span>Sensors</span><span data-stat="sensors">--</span></div>
+          <div class="stat"><span>Temp</span><span data-stat="temp">--</span></div>
+        </div>
+        <h3>MANUAL OVERRIDES</h3>
+        <div class="controls">
+          <div class="btn glitch" data-label="ALARM" onclick="playAlarm(); window.dispatchEvent(new CustomEvent('apoc-alarm'))">ARM // ALARM</div>
+          <div class="btn glitch" data-label="STATIC" onclick="playStatic()">PLAY STATIC</div>
+          <div class="btn glitch" data-label="CLICK" onclick="playClick()">CLICK</div>
+          <div class="btn glitch" data-label="NIGHT VISION" onclick="toggleNightVision()">POV NIGHT VISION</div>
+          <div class="btn glitch" data-label="GLITCH" onclick="toggleAberration()">GLITCH TOGGLE</div>
+        </div>
+      </div>
+      <div class="canvas-wrap corners">
+        <canvas id="canvas"></canvas>
+        <div class="night-vision" id="nv"></div>
+        <div class="scanlines"></div>
+        <div class="aberration" id="ab"></div>
+        <div class="curvature"></div>
+      </div>
+    </div>
+    <div class="bottom">
+      <span>DWIGHT // Y2K TERMINAL — CRT MODE ENGAGED — WASD/Scroll/Right-Click: place hazard (1=Fire,2=Bomb,3=Quake,4=Flood)</span>
+      <span>LINK: LIVE // SIGNAL: DEGRADED</span>
+    </div>
+  </div>
+
+  <script>
+    // Audio stubs (replace src with your .mp3)
+    const clickAudio = new Audio('placeholder-click.mp3');
+    const alarmAudio = new Audio('placeholder-alarm.mp3');
+    alarmAudio.loop = true;
+    const staticAudio = new Audio('placeholder-static.mp3');
+    staticAudio.loop = true;
+
+    function playClick() { try { clickAudio.currentTime = 0; clickAudio.play(); } catch (_) {} }
+    function playAlarm() { try { alarmAudio.currentTime = 0; alarmAudio.play(); } catch (_) {} }
+    function playStatic() { try { staticAudio.currentTime = 0; staticAudio.play(); } catch (_) {} }
+
+    // Visual toggles
+    function toggleNightVision() {
+      document.getElementById('nv').classList.toggle('active');
+    }
+    function toggleAberration() {
+      document.getElementById('ab').classList.toggle('active');
+    }
+
+    // Stats bridge: call window.updateApocStats({...}) from your sim
+    const statEls = {};
+    document.querySelectorAll('[data-stat]').forEach(el => { statEls[el.dataset.stat] = el; });
+    window.updateApocStats = (stats = {}) => {
+      const {
+        alive='--', escaped='--', deaths='--',
+        fires='--', bombs='--', flood='--', quake=false,
+        neural='--', aco='--', sensors='--', temp='--'
+      } = stats;
+      statEls.alive.textContent = alive;
+      statEls.escaped.textContent = escaped;
+      statEls.deaths.textContent = deaths;
+      statEls.fires.textContent = fires;
+      statEls.bombs.textContent = bombs;
+      statEls.flood.textContent = flood;
+      statEls.quake.textContent = quake ? 'ACTIVE' : 'IDLE';
+      statEls.neural.textContent = typeof neural === 'number' ? `${Math.round(neural*100)}%` : neural;
+      statEls.aco.textContent = typeof aco === 'number' ? `${Math.round(aco*100)}%` : aco;
+      statEls.sensors.textContent = sensors;
+      statEls.temp.textContent = temp;
+    };
+
+    // Chromatic aberration toggle for canvas/text
+    const canvasEl = document.getElementById('canvas');
+    const abEl = document.getElementById('ab');
+    abEl.classList.add('active');
+  </script>
 </body>
 </html>
