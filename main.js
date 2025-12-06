@@ -1456,6 +1456,16 @@ function render() {
   ctx.fillStyle = '#1a1c20';
   ctx.fillRect(0, 0, W, H);
 
+  // Earthquake shake
+  let shakeX = 0, shakeY = 0;
+  if (hazards.earthquakeActive) {
+    const mag = hazards.earthquakeIntensity * 0.8;
+    shakeX = (Math.random() - 0.5) * mag;
+    shakeY = (Math.random() - 0.5) * mag;
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+  }
+
   // Draw tiles
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -1502,6 +1512,10 @@ function render() {
   }
 
   drawScanlines();
+
+  if (hazards.earthquakeActive) {
+    ctx.restore();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1633,6 +1647,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === '2') selectedDisaster = 'bomb';
   if (e.key === '3') selectedDisaster = 'quake';
   if (e.key === '4') selectedDisaster = 'flood';
+  if (setHudState) setHudState({ hazards: { ...initialHud.hazards, tool: selectedDisaster } });
 });
 
 window.addEventListener('keyup', (e) => {
@@ -1733,6 +1748,20 @@ function App() {
     ? `${hud.target.name} | ${hud.target.state} | HP: ${Math.round(hud.target.health)}% | "${hud.target.thought}"`
     : 'Click a person to follow (Right-click to place disaster)';
 
+  const setTool = (tool) => {
+    selectedDisaster = tool;
+    setHudState({ hazards: { ...hud.hazards, tool } });
+  };
+
+  const randomDrop = (tool) => {
+    const r = Math.floor(ROWS / 2) + Math.floor(Math.random() * 10) - 5;
+    const c = Math.floor(COLS / 2) + Math.floor(Math.random() * 10) - 5;
+    if (tool === 'fire') hazards.addFire(r, c);
+    else if (tool === 'bomb') hazards.triggerBomb(r, c, 6);
+    else if (tool === 'quake') hazards.triggerEarthquake(8);
+    else if (tool === 'flood') hazards.triggerFlood(r, c);
+  };
+
   return html`
     <div class="overlay ${hud.alarm ? 'alarm-active' : ''}">
       <div class="hud">
@@ -1785,13 +1814,13 @@ function App() {
           <button class="btn btn-secondary" onClick=${() => { alarmActive = true; }}>
             Trigger Alarm
           </button>
-          <button class="btn btn-danger" onClick=${() => {
-            const r = Math.floor(ROWS / 2) + Math.floor(Math.random() * 10) - 5;
-            const c = Math.floor(COLS / 2) + Math.floor(Math.random() * 10) - 5;
-            hazards.addFire(r, c);
-          }}>
-            Start Fire
-          </button>
+          <div class="chips">
+            <button class=${`btn btn-toggle ${hud.hazards.tool === 'fire' ? 'active' : ''}`} onClick=${() => setTool('fire')}>Fire</button>
+            <button class=${`btn btn-toggle ${hud.hazards.tool === 'bomb' ? 'active' : ''}`} onClick=${() => setTool('bomb')}>Bomb</button>
+            <button class=${`btn btn-toggle ${hud.hazards.tool === 'quake' ? 'active' : ''}`} onClick=${() => setTool('quake')}>Quake</button>
+            <button class=${`btn btn-toggle ${hud.hazards.tool === 'flood' ? 'active' : ''}`} onClick=${() => setTool('flood')}>Flood</button>
+            <button class="btn btn-danger" onClick=${() => randomDrop(hud.hazards.tool)}>Drop ${hud.hazards.tool.toUpperCase()}</button>
+          </div>
           <button class="btn btn-primary" onClick=${reset}>
             Reset
           </button>
