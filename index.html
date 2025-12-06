@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dwight V13 – Browser Port</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Dwight V13 · Fixed POV & Optics</p>
+        <h1>Isometric evac sim, now on the web</h1>
+        <p class="lede">
+          Ported from the pygame prototype. Pan, zoom, drop bombs, and jump into a person's POV with dynamic lighting.
+          Built as a static site that can be dropped straight onto Vercel.
+        </p>
+      </div>
+      <div class="hero__cta">
+        <button id="resetBtn" class="btn btn-primary">Reset world</button>
+        <div class="chips">
+          <span class="chip" id="aliveChip">Alive: 0</span>
+          <span class="chip" id="escapedChip">Escaped: 0</span>
+          <span class="chip" id="hazardChip">Hazards: 0</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="layout">
+      <aside class="panel">
+        <div class="panel__header">
+          <div>
+            <p class="eyebrow">Controls</p>
+            <h2>Keep the crew alive</h2>
+          </div>
+        </div>
+        <ul class="control-list">
+          <li><span>W / A / S / D</span><strong>Pan camera</strong></li>
+          <li><span>Scroll</span><strong>Zoom</strong></li>
+          <li><span>Left click</span><strong>Follow a person (POV)</strong></li>
+          <li><span>Space</span><strong>Release camera</strong></li>
+          <li><span>B</span><strong>Bomb (stun + rubble)</strong></li>
+          <li><span>E</span><strong>Quake (sprinkle rubble)</strong></li>
+          <li><span>F</span><strong>Fire (spawn hazards)</strong></li>
+          <li><span>R</span><strong>Restart simulation</strong></li>
+        </ul>
+        <div class="note">
+          Tip: Click a person and use the scroll wheel to lean into their POV. The light mask sticks to whoever you are tracking.
+        </div>
+      </aside>
+
+      <div class="canvas-wrap">
+        <div class="canvas-header">
+          <div class="tag">Live simulation</div>
+          <div id="targetInfo" class="target-info">Camera free · click a person to follow</div>
+        </div>
+        <canvas id="sim" width="1200" height="800"></canvas>
+      </div>
+    </section>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
