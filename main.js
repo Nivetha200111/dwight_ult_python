@@ -1314,6 +1314,16 @@ function drawFireCell(r, c, intensity) {
   ctx.lineTo(baseX + core * 0.6, baseY + core * 0.4);
   ctx.closePath();
   ctx.fill();
+
+   // sparks
+   for (let i = 0; i < 2; i++) {
+     const sx = baseX + (Math.random() - 0.5) * core;
+     const sy = baseY - Math.random() * core * 2;
+     ctx.fillStyle = 'rgba(255,220,120,0.8)';
+     ctx.beginPath();
+     ctx.arc(sx, sy, 1.5 * camera.zoom, 0, Math.PI * 2);
+     ctx.fill();
+   }
   ctx.restore();
 }
 
