@@ -30,3 +30,4 @@ vercel --prod
 - IoT-style sensor nodes (auto-placed or shift-click to place) with live trigger state and coverage rings; mock WebSocket feed simulates sensor updates.
 - Optional TF.js spread predictor (CDN) adjusts fire propagation based on heat/smoke/occupancy/wind for a “smart safety” angle.
 - Targeted disasters: right-click (or ctrl+click) to place fire/bomb/quake at the cursor; choose mode with keys 1 (fire), 2 (bomb), 3 (quake). Random disaster with T. 
+- Sounds: alarm on evac, crackling fire loop while hazards burn, bomb/quake one-shots (muted if Howler.js unavailable).

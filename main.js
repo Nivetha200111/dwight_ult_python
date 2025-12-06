@@ -7,11 +7,21 @@ const html = htm.bind(React.createElement);
 const canvas = document.getElementById('sim');
 const ctx = canvas.getContext('2d');
 const Howl = window.Howl;
+
+function makeSound(src, opts = {}) {
+  if (Howl) return new Howl({ src: [src], ...opts });
+  return {
+    play() {},
+    stop() {},
+    playing() { return false; },
+  };
+}
+
 const sounds = {
-  fire: new Howl({ src: ['https://cdn.pixabay.com/download/audio/2022/03/15/audio_5b15144f33.mp3?filename=fire-crackling-1-6742.mp3'], loop: true, volume: 0.35 }),
-  alarm: new Howl({ src: ['https://cdn.pixabay.com/download/audio/2022/03/15/audio_206a695f39.mp3?filename=alarm-6107.mp3'], loop: true, volume: 0.25 }),
-  bomb: new Howl({ src: ['https://cdn.pixabay.com/download/audio/2022/03/15/audio_7c3dcbfdf3.mp3?filename=explosion-6055.mp3'], volume: 0.7 }),
-  quake: new Howl({ src: ['https://cdn.pixabay.com/download/audio/2022/03/15/audio_0dc992d7b1.mp3?filename=rumble-6054.mp3'], volume: 0.4 }),
+  fire: makeSound('https://cdn.pixabay.com/download/audio/2022/03/15/audio_5b15144f33.mp3?filename=fire-crackling-1-6742.mp3', { loop: true, volume: 0.35 }),
+  alarm: makeSound('https://cdn.pixabay.com/download/audio/2022/03/15/audio_206a695f39.mp3?filename=alarm-6107.mp3', { loop: true, volume: 0.25 }),
+  bomb: makeSound('https://cdn.pixabay.com/download/audio/2022/03/15/audio_7c3dcbfdf3.mp3?filename=explosion-6055.mp3', { volume: 0.7 }),
+  quake: makeSound('https://cdn.pixabay.com/download/audio/2022/03/15/audio_0dc992d7b1.mp3?filename=rumble-6054.mp3', { volume: 0.4 }),
 };
 
 const initialHud = {
@@ -104,6 +114,10 @@ const WALL = 1;
 const EXIT = 2;
 const RUBBLE = 3;
 const workingThoughts = ['Working...', 'Crunching numbers', 'Pulling reports', 'Fixing bugs', 'On a call'];
+const panicThoughts = ['Where is the exit?!', 'I can\'t see!', 'Stay low!', 'Move move move!', 'Smoke everywhere!'];
+const leaderThoughts = ['Follow me!', 'This way!', 'I see a path!', 'Keep moving!'];
+const hesitantThoughts = ['Is it real?', 'Should I run?', 'Wait—alarm?', 'Hold on...'];
+const aidThoughts = ['Helping you!', 'Lean on me!', 'Stay together!', 'I got you!'];
 let evacStarted = false;
 const sensorNodes = [];
 let overlayState = { showHeatmap: false, showSensors: true, showRoutes: true };
@@ -330,6 +344,7 @@ class Person {
     if (this.role === 'hesitant') this.noticeDelay += 3;
     if (this.role === 'leader') this.noticeDelay *= 0.5;
     this.aware = false;
+    this.lastShout = 0;
   }
 
   setThought(text) {
@@ -384,6 +399,8 @@ class Person {
           this.stunTimer = 2;
           this.setThought('Frozen...');
         }
+        if (this.role === 'leader') this.setThought(pick(leaderThoughts));
+        if (this.role === 'aid') this.setThought(pick(aidThoughts));
       } else {
         return;
       }
@@ -394,13 +411,13 @@ class Person {
 
     if (!this.escaped && heatHere > 0) {
       this.health -= (8 + heatHere * 0.4) * dt;
-      this.setThought('Too hot!');
+      if (Math.random() < 0.3) this.setThought('Too hot!');
       this.state = 'PANIC';
     }
 
     if (!this.escaped && smokeHere > 12) {
       this.health -= (smokeHere - 10) * 0.15 * dt;
-      this.setThought('Smoke!');
+      if (Math.random() < 0.3) this.setThought('Smoke!');
     }
 
     if (!this.escaped && this.stunTimer > 0) {
@@ -471,6 +488,15 @@ class Person {
           if (dist < 0.1) this.pathIndex += 1;
         }
       }
+    }
+
+    // occasional shouts
+    this.lastShout += dt;
+    if (this.lastShout > 3 + Math.random() * 5) {
+      if (this.role === 'leader') this.setThought(pick(leaderThoughts));
+      else if (this.role === 'aid') this.setThought(pick(aidThoughts));
+      else if (this.state === 'PANIC') this.setThought(pick(panicThoughts));
+      this.lastShout = 0;
     }
   }
 }
@@ -1015,7 +1041,10 @@ function updateMetrics() {
 
 function draw() {
   ctx.clearRect(0, 0, screenWidth, screenHeight);
-  ctx.fillStyle = '#0c0f15';
+  const grd = ctx.createLinearGradient(0, 0, screenWidth, screenHeight);
+  grd.addColorStop(0, '#0b1020');
+  grd.addColorStop(1, '#080b12');
+  ctx.fillStyle = grd;
   ctx.fillRect(0, 0, screenWidth, screenHeight);
 
   for (let r = 0; r < ROWS; r++) {
@@ -1043,6 +1072,7 @@ function draw() {
   if (overlayState.showRoutes) drawGuidancePath();
 
   drawLightingMask();
+  drawVignette();
   updateHUD();
 }
 
@@ -1218,6 +1248,17 @@ function drawLightingMask() {
   ctx.restore();
 
   drawThoughtBubble(camera.target, pos);
+}
+
+function drawVignette() {
+  ctx.save();
+  const rad = Math.max(screenWidth, screenHeight);
+  const g = ctx.createRadialGradient(screenWidth / 2, screenHeight / 2, rad * 0.2, screenWidth / 2, screenHeight / 2, rad * 0.7);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.3)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, screenWidth, screenHeight);
+  ctx.restore();
 }
 
 function drawFireCell(r, c, intensity) {
