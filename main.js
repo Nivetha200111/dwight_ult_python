@@ -5,6 +5,7 @@ const targetInfoEl = document.getElementById('targetInfo');
 const aliveChip = document.getElementById('aliveChip');
 const escapedChip = document.getElementById('escapedChip');
 const hazardChip = document.getElementById('hazardChip');
+const statusChip = document.getElementById('statusChip');
 const resetBtn = document.getElementById('resetBtn');
 
 const ROWS = 40;
@@ -14,8 +15,8 @@ const TOTAL_PEOPLE = 60;
 const BASE_TILE_W = 32;
 const BASE_TILE_H = 16;
 
-const SCREEN_WIDTH = canvas.width;
-const SCREEN_HEIGHT = canvas.height;
+let screenWidth = canvas.width;
+let screenHeight = canvas.height;
 
 const Colors = {
   FLOOR: '#8c8c96',
@@ -32,6 +33,8 @@ const FLOOR = 0;
 const WALL = 1;
 const EXIT = 2;
 const RUBBLE = 3;
+const workingThoughts = ['Working...', 'Crunching numbers', 'Pulling reports', 'Fixing bugs', 'On a call'];
+let evacStarted = false;
 
 class Camera {
   constructor() {
@@ -46,7 +49,7 @@ class Camera {
   }
 
   centerOnMap() {
-    this.x = (COLS * this.tileW) / 2 - SCREEN_WIDTH / 2;
+    this.x = (COLS * this.tileW) / 2 - screenWidth / 2;
     this.y = -100;
   }
 
@@ -76,8 +79,8 @@ class Camera {
 
     if (this.target) {
       const { x: tx, y: ty } = this.getIsoCoords(this.target.exactR, this.target.exactC);
-      const desiredX = tx - SCREEN_WIDTH / 2;
-      const desiredY = ty - SCREEN_HEIGHT / 2;
+      const desiredX = tx - screenWidth / 2;
+      const desiredY = ty - screenHeight / 2;
       this.x += (desiredX - this.x) * 0.1;
       this.y += (desiredY - this.y) * 0.1;
     }
@@ -95,7 +98,7 @@ class Camera {
   }
 }
 
-const camera = new Camera();
+let camera = null;
 
 class Pathfinder {
   findPath(start, goal, maze, hazards) {
@@ -175,8 +178,8 @@ class Person {
     this.pathIndex = 0;
     this.animOffset = Math.random() * Math.PI * 2;
     this.thought = 'Working...';
-    this.thoughtTimer = 0;
-    this.state = 'IDLE';
+    this.thoughtTimer = randInt(1, 4);
+    this.state = 'WORK';
   }
 
   setThought(text) {
@@ -210,6 +213,17 @@ class Person {
 
   update(dt, maze, hazards) {
     if (!this.alive) return;
+
+    if (this.thoughtTimer > 0) this.thoughtTimer -= dt;
+
+    if (!evacStarted) {
+      this.state = 'WORK';
+      if (this.thoughtTimer <= 0) {
+        this.setThought(pick(workingThoughts));
+        this.thoughtTimer = randInt(3, 6);
+      }
+      return;
+    }
 
     if (!this.escaped && hazards.has(key([this.r, this.c]))) {
       this.health -= 40 * dt;
@@ -247,7 +261,7 @@ class Person {
       if (!this.path.length) {
         this.setThought('TRAPPED!');
         this.state = 'PANIC';
-      } else if (this.state === 'IDLE') {
+      } else if (this.state !== 'MOVING') {
         this.setThought('Exit found.');
         this.state = 'MOVING';
       }
@@ -312,6 +326,23 @@ function pick(arr) {
   return arr[randInt(0, arr.length - 1)];
 }
 
+function resizeCanvas() {
+  const prevW = screenWidth;
+  const prevH = screenHeight;
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  screenWidth = canvas.width;
+  screenHeight = canvas.height;
+  if (camera) {
+    camera.x += (screenWidth - prevW) / 2;
+    camera.y += (screenHeight - prevH) / 2;
+  }
+}
+
+resizeCanvas();
+camera = new Camera();
+window.addEventListener('resize', resizeCanvas);
+
 function createMaze() {
   const m = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => FLOOR));
 
@@ -352,6 +383,7 @@ function spawnPeople(m) {
 }
 
 function resetWorld() {
+  evacStarted = false;
   hazards.clear();
   maze = createMaze();
   people = spawnPeople(maze);
@@ -407,7 +439,18 @@ canvas.addEventListener('wheel', (e) => {
   camera.applyZoom(-e.deltaY * 0.0015);
 });
 
+function beginEvac() {
+  if (evacStarted) return;
+  evacStarted = true;
+  for (const p of people) {
+    p.path = [];
+    p.state = 'IDLE';
+    p.setThought('Move! Move!');
+  }
+}
+
 function triggerBomb() {
+  beginEvac();
   camera.shake = 15;
   for (let i = 0; i < 4; i++) {
     let ir = randInt(2, ROWS - 2);
@@ -433,6 +476,7 @@ function triggerBomb() {
 }
 
 function triggerQuake() {
+  beginEvac();
   camera.shake = 25;
   for (let i = 0; i < 60; i++) {
     const rx = randInt(2, ROWS - 2);
@@ -442,6 +486,7 @@ function triggerQuake() {
 }
 
 function triggerFire() {
+  beginEvac();
   for (let i = 0; i < 10; i++) {
     const fx = randInt(2, ROWS - 2);
     const fy = randInt(2, COLS - 2);
@@ -487,12 +532,14 @@ function updateHazards(dt) {
       if (!hazards.has(k)) hazards.set(k, 10);
     }
   }
+
+  if (hazards.size && !evacStarted) beginEvac();
 }
 
 function draw() {
-  ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+  ctx.clearRect(0, 0, screenWidth, screenHeight);
   ctx.fillStyle = '#151822';
-  ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+  ctx.fillRect(0, 0, screenWidth, screenHeight);
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -521,7 +568,7 @@ function draw() {
 
 function drawIsoTile(r, c, tile) {
   const pos = camera.toScreen(r, c);
-  if (pos.x < -100 || pos.x > SCREEN_WIDTH + 100 || pos.y < -100 || pos.y > SCREEN_HEIGHT + 100) return;
+  if (pos.x < -100 || pos.x > screenWidth + 100 || pos.y < -100 || pos.y > screenHeight + 100) return;
 
   const w = camera.tileW;
   const hTile = camera.tileH;
@@ -575,7 +622,7 @@ function drawIsoTile(r, c, tile) {
 
 function drawPerson(p, timeVal) {
   const pos = camera.toScreen(p.exactR, p.exactC);
-  if (pos.x < -50 || pos.x > SCREEN_WIDTH + 50 || pos.y < -50 || pos.y > SCREEN_HEIGHT + 50) return;
+  if (pos.x < -50 || pos.x > screenWidth + 50 || pos.y < -50 || pos.y > screenHeight + 50) return;
 
   const zoom = camera.zoom;
   if (!p.alive) {
@@ -586,6 +633,7 @@ function drawPerson(p, timeVal) {
 
   let bob = 0;
   if (p.state === 'MOVING') bob = Math.sin(timeVal * 10 + p.animOffset) * 2 * zoom;
+  else if (p.state === 'WORK') bob = Math.sin(timeVal * 2 + p.animOffset) * 1.2 * zoom;
 
   const h = 16 * zoom;
   const w = 8 * zoom;
@@ -636,7 +684,7 @@ function drawLightingMask() {
 
   ctx.save();
   ctx.fillStyle = 'rgba(30,30,30,0.8)';
-  ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+  ctx.fillRect(0, 0, screenWidth, screenHeight);
   ctx.globalCompositeOperation = 'destination-out';
   const g = ctx.createRadialGradient(pos.x, pos.y - 20, radius * 0.25, pos.x, pos.y - 20, radius);
   g.addColorStop(0, 'rgba(0,0,0,0.9)');
@@ -653,8 +701,8 @@ function drawLightingMask() {
 function drawThoughtBubble(p, pos) {
   const bubbleW = 190;
   const bubbleH = 56;
-  const x = clamp(pos.x + 30, 12, SCREEN_WIDTH - bubbleW - 12);
-  const y = clamp(pos.y - 90, 12, SCREEN_HEIGHT - bubbleH - 12);
+  const x = clamp(pos.x + 30, 12, screenWidth - bubbleW - 12);
+  const y = clamp(pos.y - 90, 12, screenHeight - bubbleH - 12);
 
   ctx.save();
   ctx.fillStyle = 'rgba(255,255,255,0.98)';
@@ -706,6 +754,7 @@ function updateHUD() {
   aliveChip.textContent = `Alive: ${alive}`;
   escapedChip.textContent = `Escaped: ${escaped}`;
   hazardChip.textContent = `Hazards: ${hazards.size}`;
+  statusChip.textContent = `Status: ${evacStarted ? 'Evacuating' : 'Working'}`;
 
   if (camera.target) {
     targetInfoEl.textContent = `Tracking ID ${camera.target.id} · ${camera.target.thought}`;

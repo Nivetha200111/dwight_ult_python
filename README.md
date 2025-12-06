@@ -20,7 +20,8 @@ vercel --prod
 
 ## What’s included
 
-- Canvas rendering of the isometric grid, rubble, exits, and hazard spread.
+- Full-screen canvas rendering of the isometric grid, rubble, exits, and hazard spread.
+- Workers idle in-place until you trigger a disaster (Bomb/Quake/Fire), then they evacuate.
 - Camera panning/zoom, person selection with dynamic lighting mask, and thought bubbles.
 - Bomb/quake/fire events, stun + health logic, and pathfinding toward exits.
-- Lightweight UI (stats + controls) styled for a single-page deploy.
+- Minimal HUD with stats/controls; no marketing chrome.
